@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog
 import vlc
 import logging
+from playlist_panel import PlaylistPanel
 
 class SimpleVideoPlayer:
     def __init__(self, root):
@@ -24,9 +25,17 @@ class SimpleVideoPlayer:
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Create side-by-side layout
+        self.content_frame = tk.Frame(self.main_frame)
+        self.content_frame.pack(fill=tk.BOTH, expand=True)
+
         # Create a canvas to hold the video
-        self.canvas = tk.Canvas(self.main_frame, width=800, height=600)
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=False)  # Fill only horizontally
+        self.canvas = tk.Canvas(self.content_frame, width=800, height=600)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)  # Fill both
+
+        # Playlist panel
+        self.playlist_panel = PlaylistPanel(self.content_frame, self.play_file)
+        self.playlist_panel.frame.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Frame for buttons (controls)
         self.controls_frame = tk.Frame(self.main_frame)
@@ -78,12 +87,20 @@ class SimpleVideoPlayer:
         file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
         if file_path:
             self.logger.info(f'File selected: {file_path}')
-            self.player.set_xwindow(self.canvas.winfo_id())
-            media = self.instance.media_new(file_path)
-            self.player.set_media(media)
-            self.play_pause()
+            # Add to playlist
+            self.playlist_panel.add_to_playlist(file_path)
+            self.play_file(file_path)
         else:
             self.logger.info('No file selected')
+
+    def play_file(self, file_path):
+        """Play a specific file"""
+        self.logger.info(f'Playing file: {file_path}')
+        self.player.set_xwindow(self.canvas.winfo_id())
+        media = self.instance.media_new(file_path)
+        self.player.set_media(media)
+        self.player.play()
+        self.play_pause_button.config(text="Pause")
 
     def play_pause(self):
         self.logger.debug('Play/Pause button pressed')
@@ -103,23 +120,19 @@ class SimpleVideoPlayer:
 
     def previous_track(self):
         self.logger.debug('Previous track button pressed')
-        # Implement logic to go to the previous track
-        # Placeholder: stop current playback
-        self.player.stop()
-        self.logger.info('Moved to previous track (placeholder)')
+        prev_track = self.playlist_panel.previous_track()
+        if prev_track:
+            self.play_file(prev_track)
+        else:
+            self.logger.info('No previous track available')
 
     def next_track(self):
         self.logger.debug('Next track button pressed')
-        # Implement logic to go to the next track
-        # Placeholder: stop current playback
-        self.player.stop()
-        self.logger.info('Moved to next track (placeholder)')
-
-    def pause(self):
-        self.logger.debug('Pause button pressed')
-        self.player.pause()
-        self.play_pause_button.config(text="Play")
-        self.logger.info('Playback paused')
+        next_track = self.playlist_panel.next_track()
+        if next_track:
+            self.play_file(next_track)
+        else:
+            self.logger.info('No next track available')
 
     def mute(self):
         self.logger.debug('Mute button pressed')
