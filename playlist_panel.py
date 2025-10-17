@@ -88,13 +88,35 @@ class PlaylistPanel:
                 self.current_index = 0
                 self.playlist_box.selection_set(0)
         else:
-            # If the file is already in the playlist, select it
+            # If the file is already in the playlist, select it only if this panel is being used
             index = self.playlist_files.index(file_path)
             self.current_index = index
             self.playlist_box.selection_clear(0, tk.END)
             self.playlist_box.selection_set(index)
             self.playlist_box.see(index)
             self.logger.debug(f'File already in playlist, selected at index {index}')
+
+    def set_current_file(self, file_path):
+        """Set current file without affecting UI selection - for internal tracking only"""
+        if file_path in self.playlist_files:
+            self.current_index = self.playlist_files.index(file_path)
+            self.logger.debug(f'Updated current index to {self.current_index} for file: {file_path}')
+            return True
+        return False
+
+    def update_visual_selection(self, file_path):
+        """Update the visual selection in this panel"""
+        if file_path in self.playlist_files:
+            index = self.playlist_files.index(file_path)
+            self.current_index = index
+            self.playlist_box.selection_clear(0, tk.END)
+            self.playlist_box.selection_set(index)
+            self.playlist_box.see(index)
+            self.logger.debug(f'Updated visual selection to index {index}')
+
+    def clear_visual_selection(self):
+        """Clear the visual selection in this panel"""
+        self.playlist_box.selection_clear(0, tk.END)
 
     def play_selected(self, event=None):
         """Play the selected file in the playlist"""
