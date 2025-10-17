@@ -1,13 +1,34 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
-                             QFileDialog, QFrame)
+                             QFileDialog, QFrame, QSplitter)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 import vlc
 import logging
 from playlist_panel import PlaylistPanel
 from m3u_panel import M3UPanel
+
+class ClickableSlider(QSlider):
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal:
+            x = event.x()
+            w = max(1, self.width())
+            ratio = x / w
+            new_val = round(self.minimum() + ratio * (self.maximum() - self.minimum()))
+            self.setValue(new_val)
+            try:
+                self.sliderMoved.emit(new_val)
+            except Exception:
+                pass
+            try:
+                self.sliderReleased.emit()
+            except Exception:
+                pass
+        super().mousePressEvent(event)
+
+#class SettingStorage:
+#    def
 
 class SimpleVideoPlayer(QMainWindow):
     def __init__(self):
@@ -35,31 +56,34 @@ class SimpleVideoPlayer(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Create content frame with horizontal layout
-        content_frame = QWidget()
-        content_layout = QHBoxLayout(content_frame)
+        # Create content frame with splitter for resizable panels
+        content_splitter = QSplitter(Qt.Horizontal)
 
         # Create video widget (VLC will embed here)
         self.video_widget = QWidget()
         self.video_widget.setMinimumSize(800, 600)
         self.video_widget.setStyleSheet("background-color: black;")
-        content_layout.addWidget(self.video_widget, 1)
+        content_splitter.addWidget(self.video_widget)
 
-        # Create right sidebar for both playlist panels
-        sidebar_frame = QWidget()
-        sidebar_frame.setFixedWidth(250)
-        sidebar_layout = QVBoxLayout(sidebar_frame)
+        # Sidebar splitter for playlist panels
+        sidebar_splitter = QSplitter(Qt.Vertical)
+        sidebar_splitter.setChildrenCollapsible(False)
 
         # Folder playlist panel (top half)
-        self.playlist_panel = PlaylistPanel(sidebar_frame, self.play_file)
-        sidebar_layout.addWidget(self.playlist_panel, 1)
+        self.playlist_panel = PlaylistPanel(None, self.play_file)
+        sidebar_splitter.addWidget(self.playlist_panel)
 
         # M3U playlist panel (bottom half)
-        self.m3u_panel = M3UPanel(sidebar_frame, self.play_file)
-        sidebar_layout.addWidget(self.m3u_panel, 1)
+        self.m3u_panel = M3UPanel(None, self.play_file)
+        sidebar_splitter.addWidget(self.m3u_panel)
 
-        content_layout.addWidget(sidebar_frame)
-        main_layout.addWidget(content_frame)
+        # Set initial sizes for the panels
+        sidebar_splitter.setSizes([200, 200])
+        content_splitter.addWidget(sidebar_splitter)
+        content_splitter.setStretchFactor(0, 3)
+        content_splitter.setStretchFactor(1, 1)
+
+        main_layout.addWidget(content_splitter)
 
         # Track which panel is currently active
         self.active_panel = 'folder'  # 'folder' or 'm3u'
@@ -106,14 +130,17 @@ class SimpleVideoPlayer(QMainWindow):
         volume_label = QLabel("Volume")
         controls_layout.addWidget(volume_label)
 
-        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider = ClickableSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(100)
+        self.volume_slider.setMaximumWidth(100)
         self.volume_slider.valueChanged.connect(self.set_volume)
         controls_layout.addWidget(self.volume_slider)
 
+        time_label = QLabel("Time")
+        controls_layout.addWidget(time_label)
         # Time bar (seek bar)
-        self.time_slider = QSlider(Qt.Horizontal)
+        self.time_slider = ClickableSlider(Qt.Horizontal)
         self.time_slider.setRange(0, 100)
         self.time_slider.setMinimumWidth(300)
         self.time_slider.sliderPressed.connect(self.on_seek_start)
