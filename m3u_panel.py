@@ -1,59 +1,58 @@
-import tkinter as tk
-from tkinter import filedialog
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget,
+                             QLabel, QFileDialog, QListWidgetItem)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
 import os
 import logging
 
-class M3UPanel:
+class M3UPanel(QWidget):
     def __init__(self, parent, callback_play):
+        super().__init__(parent)
+
         self.logger = logging.getLogger(__name__)
         self.logger.debug('Initializing M3UPanel')
 
-        self.parent = parent
         self.callback_play = callback_play
         self.playlist_files = []
         self.current_index = -1
         self.playlist_title = ""
 
-        # Create main frame for M3U playlist
-        self.frame = tk.Frame(parent, width=200)
+        # Create main layout
+        layout = QVBoxLayout(self)
 
         # Title label
-        self.title_label = tk.Label(self.frame, text="M3U Playlists", font=("Arial", 10, "bold"))
-        self.title_label.pack(fill=tk.X, padx=5, pady=(5, 0))
+        title_label = QLabel("M3U Playlists")
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(10)
+        title_label.setFont(title_font)
+        layout.addWidget(title_label)
 
         # Create a button to select M3U file
-        self.file_button = tk.Button(self.frame, text="Load M3U/M3U8", command=self.load_m3u_file)
-        self.file_button.pack(fill=tk.X, padx=5, pady=5)
+        self.file_button = QPushButton("Load M3U/M3U8")
+        self.file_button.clicked.connect(self.load_m3u_file)
+        layout.addWidget(self.file_button)
 
         # Playlist name display
-        self.playlist_name_label = tk.Label(self.frame, text="No playlist loaded", wraplength=180)
-        self.playlist_name_label.pack(fill=tk.X, padx=5)
+        self.playlist_name_label = QLabel("No playlist loaded")
+        self.playlist_name_label.setWordWrap(True)
+        layout.addWidget(self.playlist_name_label)
 
         # Create a listbox to display playlist items
-        self.list_frame = tk.Frame(self.frame)
-        self.list_frame.pack(fill=tk.BOTH, expand=True, padx=5)
-
-        self.scrollbar = tk.Scrollbar(self.list_frame)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.playlist_box = tk.Listbox(self.list_frame)
-        self.playlist_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Connect scrollbar to listbox
-        self.playlist_box.config(yscrollcommand=self.scrollbar.set)
-        self.scrollbar.config(command=self.playlist_box.yview)
-
-        # Bind double-click to play selected file
-        self.playlist_box.bind("<Double-Button-1>", self.play_selected)
+        self.playlist_box = QListWidget()
+        self.playlist_box.itemDoubleClicked.connect(self.play_selected)
+        layout.addWidget(self.playlist_box)
 
         self.logger.debug('M3UPanel initialized')
 
     def load_m3u_file(self):
         """Open file dialog and load M3U/M3U8 playlist"""
         self.logger.debug('Selecting M3U playlist file')
-        file_path = filedialog.askopenfilename(
-            title="Select M3U Playlist",
-            filetypes=[("M3U files", "*.m3u"), ("M3U8 files", "*.m3u8"), ("All files", "*.*")]
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select M3U Playlist",
+            "",
+            "M3U files (*.m3u);;M3U8 files (*.m3u8);;All files (*.*)"
         )
         if file_path:
             self.logger.info(f'M3U file selected: {file_path}')
@@ -66,7 +65,7 @@ class M3UPanel:
         self.logger.debug(f'Parsing M3U file: {file_path}')
 
         # Clear current playlist
-        self.playlist_box.delete(0, tk.END)
+        self.playlist_box.clear()
         self.playlist_files = []
         self.playlist_title = ""
 
@@ -110,40 +109,38 @@ class M3UPanel:
 
                     # Add to playlist
                     self.playlist_files.append(file_url)
-                    self.playlist_box.insert(tk.END, display_name)
+                    self.playlist_box.addItem(display_name)
 
                     # Reset current title for next track
                     current_title = None
 
             # Update playlist name display
             display_name = self.playlist_title if self.playlist_title else os.path.basename(file_path)
-            self.playlist_name_label.config(text=display_name)
+            self.playlist_name_label.setText(display_name)
 
             self.logger.info(f'Loaded {len(self.playlist_files)} items from M3U playlist')
 
         except Exception as e:
             self.logger.error(f'Error parsing M3U file: {e}')
-            self.playlist_name_label.config(text="Error loading playlist")
+            self.playlist_name_label.setText("Error loading playlist")
 
     def add_to_playlist(self, file_path):
         """Add a single file to the playlist (for compatibility)"""
         if file_path not in self.playlist_files:
             self.playlist_files.append(file_path)
             filename = os.path.basename(file_path)
-            self.playlist_box.insert(tk.END, filename)
+            self.playlist_box.addItem(filename)
             self.logger.debug(f'Added {filename} to M3U playlist')
 
             # If this is the first file, set it as current
             if len(self.playlist_files) == 1:
                 self.current_index = 0
-                self.playlist_box.selection_set(0)
+                self.playlist_box.setCurrentRow(0)
         else:
             # If the file is already in the playlist, select it only if this panel is being used
             index = self.playlist_files.index(file_path)
             self.current_index = index
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
-            self.playlist_box.see(index)
+            self.playlist_box.setCurrentRow(index)
             self.logger.debug(f'File already in M3U playlist, selected at index {index}')
 
     def set_current_file(self, file_path):
@@ -159,26 +156,23 @@ class M3UPanel:
         if file_path in self.playlist_files:
             index = self.playlist_files.index(file_path)
             self.current_index = index
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
-            self.playlist_box.see(index)
+            self.playlist_box.setCurrentRow(index)
             self.logger.debug(f'Updated M3U visual selection to index {index}')
 
     def clear_visual_selection(self):
         """Clear the visual selection in this panel"""
-        self.playlist_box.selection_clear(0, tk.END)
+        self.playlist_box.clearSelection()
+        self.playlist_box.setCurrentRow(-1)
 
-    def play_selected(self, event=None):
+    def play_selected(self, item=None):
         """Play the selected file in the playlist"""
-        selection = self.playlist_box.curselection()
-        if selection:
-            index = selection[0]
-            self.current_index = index
-            self.logger.debug(f'Selected M3U item at index {index}: {self.playlist_files[index]}')
-            self.callback_play(self.playlist_files[index])
+        current_row = self.playlist_box.currentRow()
+        if current_row >= 0:
+            self.current_index = current_row
+            self.logger.debug(f'Selected M3U item at index {current_row}: {self.playlist_files[current_row]}')
+            self.callback_play(self.playlist_files[current_row])
             # Highlight the currently playing item
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
+            self.playlist_box.setCurrentRow(current_row)
 
     def next_track(self):
         """Play the next track in the playlist"""
@@ -188,9 +182,7 @@ class M3UPanel:
 
         if self.current_index < len(self.playlist_files) - 1:
             self.current_index += 1
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(self.current_index)
-            self.playlist_box.see(self.current_index)  # Ensure visible
+            self.playlist_box.setCurrentRow(self.current_index)
             self.logger.info(f'Moving to next M3U track: {self.playlist_files[self.current_index]}')
             return self.playlist_files[self.current_index]
         else:
@@ -205,9 +197,7 @@ class M3UPanel:
 
         if self.current_index > 0:
             self.current_index -= 1
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(self.current_index)
-            self.playlist_box.see(self.current_index)  # Ensure visible
+            self.playlist_box.setCurrentRow(self.current_index)
             self.logger.info(f'Moving to previous M3U track: {self.playlist_files[self.current_index]}')
             return self.playlist_files[self.current_index]
         else:

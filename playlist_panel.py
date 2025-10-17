@@ -1,48 +1,48 @@
-import tkinter as tk
-from tkinter import filedialog
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget,
+                             QLabel, QFileDialog, QListWidgetItem)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
 import os
 import logging
 
-class PlaylistPanel:
+class PlaylistPanel(QWidget):
     def __init__(self, parent, callback_play):
+        super().__init__(parent)
+
         self.logger = logging.getLogger(__name__)
         self.logger.debug('Initializing PlaylistPanel')
 
-        self.parent = parent
         self.callback_play = callback_play
         self.playlist_files = []
         self.current_index = -1
 
-        # Create main frame for playlist
-        self.frame = tk.Frame(parent, width=200)
+        # Create main layout
+        layout = QVBoxLayout(self)
+
+        # Title label
+        title_label = QLabel("Folder Playlist")
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(10)
+        title_label.setFont(title_font)
+        layout.addWidget(title_label)
 
         # Create a button to select folder
-        self.folder_button = tk.Button(self.frame, text="Select Folder", command=self.select_folder)
-        self.folder_button.pack(fill=tk.X, padx=5, pady=5)
+        self.folder_button = QPushButton("Select Folder")
+        self.folder_button.clicked.connect(self.select_folder)
+        layout.addWidget(self.folder_button)
 
         # Create a listbox to display files
-        self.list_frame = tk.Frame(self.frame)
-        self.list_frame.pack(fill=tk.BOTH, expand=True, padx=5)
-
-        self.scrollbar = tk.Scrollbar(self.list_frame)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.playlist_box = tk.Listbox(self.list_frame)
-        self.playlist_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Connect scrollbar to listbox
-        self.playlist_box.config(yscrollcommand=self.scrollbar.set)
-        self.scrollbar.config(command=self.playlist_box.yview)
-
-        # Bind double-click to play selected file
-        self.playlist_box.bind("<Double-Button-1>", self.play_selected)
+        self.playlist_box = QListWidget()
+        self.playlist_box.itemDoubleClicked.connect(self.play_selected)
+        layout.addWidget(self.playlist_box)
 
         self.logger.debug('PlaylistPanel initialized')
 
     def select_folder(self):
         """Open folder dialog and load video files into playlist"""
         self.logger.debug('Selecting folder for playlist')
-        folder_path = filedialog.askdirectory()
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder_path:
             self.logger.info(f'Folder selected: {folder_path}')
             self.load_playlist(folder_path)
@@ -54,7 +54,7 @@ class PlaylistPanel:
         self.logger.debug(f'Loading playlist from {folder_path}')
 
         # Clear current playlist
-        self.playlist_box.delete(0, tk.END)
+        self.playlist_box.clear()
         self.playlist_files = []
 
         # Video file extensions to look for
@@ -69,7 +69,7 @@ class PlaylistPanel:
                 if file.lower().endswith(video_extensions):
                     full_path = os.path.join(folder_path, file)
                     self.playlist_files.append(full_path)
-                    self.playlist_box.insert(tk.END, file)  # Show just the filename
+                    self.playlist_box.addItem(file)  # Show just the filename
 
             self.logger.info(f'Loaded {len(self.playlist_files)} video files')
         except Exception as e:
@@ -80,20 +80,18 @@ class PlaylistPanel:
         if file_path not in self.playlist_files:
             self.playlist_files.append(file_path)
             filename = os.path.basename(file_path)
-            self.playlist_box.insert(tk.END, filename)
+            self.playlist_box.addItem(filename)
             self.logger.debug(f'Added {filename} to playlist')
 
             # If this is the first file, set it as current
             if len(self.playlist_files) == 1:
                 self.current_index = 0
-                self.playlist_box.selection_set(0)
+                self.playlist_box.setCurrentRow(0)
         else:
             # If the file is already in the playlist, select it only if this panel is being used
             index = self.playlist_files.index(file_path)
             self.current_index = index
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
-            self.playlist_box.see(index)
+            self.playlist_box.setCurrentRow(index)
             self.logger.debug(f'File already in playlist, selected at index {index}')
 
     def set_current_file(self, file_path):
@@ -109,26 +107,23 @@ class PlaylistPanel:
         if file_path in self.playlist_files:
             index = self.playlist_files.index(file_path)
             self.current_index = index
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
-            self.playlist_box.see(index)
+            self.playlist_box.setCurrentRow(index)
             self.logger.debug(f'Updated visual selection to index {index}')
 
     def clear_visual_selection(self):
         """Clear the visual selection in this panel"""
-        self.playlist_box.selection_clear(0, tk.END)
+        self.playlist_box.clearSelection()
+        self.playlist_box.setCurrentRow(-1)
 
-    def play_selected(self, event=None):
+    def play_selected(self, item=None):
         """Play the selected file in the playlist"""
-        selection = self.playlist_box.curselection()
-        if selection:
-            index = selection[0]
-            self.current_index = index
-            self.logger.debug(f'Selected file at index {index}: {self.playlist_files[index]}')
-            self.callback_play(self.playlist_files[index])
+        current_row = self.playlist_box.currentRow()
+        if current_row >= 0:
+            self.current_index = current_row
+            self.logger.debug(f'Selected file at index {current_row}: {self.playlist_files[current_row]}')
+            self.callback_play(self.playlist_files[current_row])
             # Highlight the currently playing item
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(index)
+            self.playlist_box.setCurrentRow(current_row)
 
     def next_track(self):
         """Play the next track in the playlist"""
@@ -138,9 +133,7 @@ class PlaylistPanel:
 
         if self.current_index < len(self.playlist_files) - 1:
             self.current_index += 1
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(self.current_index)
-            self.playlist_box.see(self.current_index)  # Ensure visible
+            self.playlist_box.setCurrentRow(self.current_index)
             self.logger.info(f'Moving to next track: {self.playlist_files[self.current_index]}')
             return self.playlist_files[self.current_index]
         else:
@@ -155,9 +148,7 @@ class PlaylistPanel:
 
         if self.current_index > 0:
             self.current_index -= 1
-            self.playlist_box.selection_clear(0, tk.END)
-            self.playlist_box.selection_set(self.current_index)
-            self.playlist_box.see(self.current_index)  # Ensure visible
+            self.playlist_box.setCurrentRow(self.current_index)
             self.logger.info(f'Moving to previous track: {self.playlist_files[self.current_index]}')
             return self.playlist_files[self.current_index]
         else:

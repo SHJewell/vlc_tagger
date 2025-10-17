@@ -1,12 +1,20 @@
-import tkinter as tk
-from tkinter import filedialog
+import sys
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QSlider, QLabel,
+                             QFileDialog, QFrame)
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFont
 import vlc
 import logging
 from playlist_panel import PlaylistPanel
 from m3u_panel import M3UPanel
 
-class SimpleVideoPlayer:
-    def __init__(self, root):
+class SimpleVideoPlayer(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.previous_volume = 100  # To store volume before muting
+
         # Set up logger to log to a file
         self.logger = logging.getLogger(__name__)
         logging.basicConfig(
@@ -19,89 +27,117 @@ class SimpleVideoPlayer:
         )
         self.logger.debug('Initializing SimpleVideoPlayer')
 
-        self.root = root
-        self.root.title("Simple Video Player")
+        self.setWindowTitle("Simple Video Player")
+        self.setGeometry(100, 100, 1200, 800)
 
-        # Create the main frame to hold everything
-        self.main_frame = tk.Frame(self.root)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        # Create central widget and main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
 
-        # Create side-by-side layout
-        self.content_frame = tk.Frame(self.main_frame)
-        self.content_frame.pack(fill=tk.BOTH, expand=True)
+        # Create content frame with horizontal layout
+        content_frame = QWidget()
+        content_layout = QHBoxLayout(content_frame)
 
-        # Create a canvas to hold the video
-        self.canvas = tk.Canvas(self.content_frame, width=800, height=600)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Create video widget (VLC will embed here)
+        self.video_widget = QWidget()
+        self.video_widget.setMinimumSize(800, 600)
+        self.video_widget.setStyleSheet("background-color: black;")
+        content_layout.addWidget(self.video_widget, 1)
 
         # Create right sidebar for both playlist panels
-        self.sidebar_frame = tk.Frame(self.content_frame, width=250)
-        self.sidebar_frame.pack(side=tk.RIGHT, fill=tk.Y)
-        self.sidebar_frame.pack_propagate(False)  # Maintain fixed width
+        sidebar_frame = QWidget()
+        sidebar_frame.setFixedWidth(250)
+        sidebar_layout = QVBoxLayout(sidebar_frame)
 
         # Folder playlist panel (top half)
-        self.playlist_panel = PlaylistPanel(self.sidebar_frame, self.play_file)
-        self.playlist_panel.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=2, pady=(2, 1))
+        self.playlist_panel = PlaylistPanel(sidebar_frame, self.play_file)
+        sidebar_layout.addWidget(self.playlist_panel, 1)
 
         # M3U playlist panel (bottom half)
-        self.m3u_panel = M3UPanel(self.sidebar_frame, self.play_file)
-        self.m3u_panel.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=2, pady=(1, 2))
+        self.m3u_panel = M3UPanel(sidebar_frame, self.play_file)
+        sidebar_layout.addWidget(self.m3u_panel, 1)
+
+        content_layout.addWidget(sidebar_frame)
+        main_layout.addWidget(content_frame)
 
         # Track which panel is currently active
         self.active_panel = 'folder'  # 'folder' or 'm3u'
 
-        # Frame for buttons (controls)
-        self.controls_frame = tk.Frame(self.main_frame)
-        self.controls_frame.pack(fill=tk.X)
+        # Create controls frame
+        controls_frame = QWidget()
+        controls_layout = QHBoxLayout(controls_frame)
 
         # VLC instance and media player
         self.instance = vlc.Instance()
         self.player = self.instance.media_player_new()
 
         # Open button
-        self.open_button = tk.Button(self.controls_frame, text="Open Video", command=self.open_file)
-        self.open_button.pack(side=tk.LEFT)
+        self.open_button = QPushButton("Open Video")
+        self.open_button.clicked.connect(self.open_file)
+        controls_layout.addWidget(self.open_button)
 
         # Play/Pause button
-        self.play_pause_button = tk.Button(self.controls_frame, text="Play", command=self.play_pause)
-        self.play_pause_button.pack(side=tk.LEFT)
+        self.play_pause_button = QPushButton("Play")
+        self.play_pause_button.clicked.connect(self.play_pause)
+        controls_layout.addWidget(self.play_pause_button)
 
         # Stop button
-        self.stop_button = tk.Button(self.controls_frame, text="Stop", command=self.stop)
-        self.stop_button.pack(side=tk.LEFT)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop)
+        controls_layout.addWidget(self.stop_button)
 
         # Previous Track button
-        self.prev_button = tk.Button(self.controls_frame, text="Previous", command=self.previous_track)
-        self.prev_button.pack(side=tk.LEFT)
+        self.prev_button = QPushButton("Previous")
+        self.prev_button.clicked.connect(self.previous_track)
+        controls_layout.addWidget(self.prev_button)
 
         # Next Track button
-        self.next_button = tk.Button(self.controls_frame, text="Next", command=self.next_track)
-        self.next_button.pack(side=tk.LEFT)
+        self.next_button = QPushButton("Next")
+        self.next_button.clicked.connect(self.next_track)
+        controls_layout.addWidget(self.next_button)
 
         # Mute button
-        self.mute_button = tk.Button(self.controls_frame, text="Mute", command=self.mute)
-        self.mute_button.pack(side=tk.LEFT)
+        self.mute_button = QPushButton("Mute")
+        self.mute_button.clicked.connect(self.mute)
+        controls_layout.addWidget(self.mute_button)
 
         # Volume controls
-        self.volume_label = tk.Label(self.controls_frame, text="Volume")
-        self.volume_label.pack(side=tk.LEFT)
-        self.volume_slider = tk.Scale(self.controls_frame, from_=0, to=100, orient=tk.HORIZONTAL, command=self.set_volume)
-        self.volume_slider.set(100)
-        self.volume_slider.pack(side=tk.LEFT)
+        volume_label = QLabel("Volume")
+        controls_layout.addWidget(volume_label)
 
-        # Time bar (seek bar) - bind to drag events instead of command
-        self.time_slider = tk.Scale(self.controls_frame, from_=0, to=100, orient=tk.HORIZONTAL, length=300)
-        self.time_slider.pack(side=tk.LEFT)
-        self.time_slider.bind("<ButtonRelease-1>", self.on_seek_release)
-        self.time_slider.bind("<Button-1>", self.on_seek_start)
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(100)
+        self.volume_slider.valueChanged.connect(self.set_volume)
+        controls_layout.addWidget(self.volume_slider)
+
+        # Time bar (seek bar)
+        self.time_slider = QSlider(Qt.Horizontal)
+        self.time_slider.setRange(0, 100)
+        self.time_slider.setMinimumWidth(300)
+        self.time_slider.sliderPressed.connect(self.on_seek_start)
+        self.time_slider.sliderReleased.connect(self.on_seek_release)
+        controls_layout.addWidget(self.time_slider)
+
+        main_layout.addWidget(controls_frame)
 
         self.updating_slider = False
         self.seeking = False
-        self.root.after(500, self.update_time_slider)
+
+        # Timer for updating time slider
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_time_slider)
+        self.timer.start(500)
 
     def open_file(self):
         self.logger.debug('Open file dialog triggered')
-        file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Video",
+            "",
+            "Video files (*.mp4 *.avi *.mkv);;All files (*.*)"
+        )
         if file_path:
             self.logger.info(f'File selected: {file_path}')
             # Add to folder playlist
@@ -145,11 +181,18 @@ class SimpleVideoPlayer:
             self.playlist_panel.clear_visual_selection()
             self.m3u_panel.clear_visual_selection()
 
-        self.player.set_xwindow(self.canvas.winfo_id())
+        # Set VLC to use the video widget
+        if sys.platform.startswith('linux'):  # for Linux using the X Server
+            self.player.set_xwindow(self.video_widget.winId())
+        elif sys.platform == "win32":  # for Windows
+            self.player.set_hwnd(self.video_widget.winId())
+        elif sys.platform == "darwin":  # for MacOS
+            self.player.set_nsobject(int(self.video_widget.winId()))
+
         media = self.instance.media_new(file_path)
         self.player.set_media(media)
         self.player.play()
-        self.play_pause_button.config(text="Pause")
+        self.play_pause_button.setText("Pause")
 
     def play_pause(self):
         self.logger.debug('Play/Pause button pressed')
@@ -157,15 +200,16 @@ class SimpleVideoPlayer:
         if is_playing:
             self.logger.info('Pausing playback')
             self.player.pause()
-            self.play_pause_button.config(text="Play")
+            self.play_pause_button.setText("Play")
         else:
             self.logger.info('Starting playback')
             self.player.play()
-            self.play_pause_button.config(text="Pause")
+            self.play_pause_button.setText("Pause")
 
     def stop(self):
         self.logger.debug('Stop button pressed')
         self.player.stop()
+        self.play_pause_button.setText("Play")
 
     def previous_track(self):
         self.logger.debug('Previous track button pressed')
@@ -211,33 +255,38 @@ class SimpleVideoPlayer:
         self.player.audio_toggle_mute()
         if is_muted:
             self.logger.info('Audio unmuted')
-            self.mute_button.config(text="Mute")
+            self.mute_button.setText("Mute")
+            self.volume_slider.setValue(self.previous_volume)
         else:
             self.logger.info('Audio muted')
-            self.mute_button.config(text="Unmute")
+            self.mute_button.setText("Unmute")
+            self.previous_volume = self.volume_slider.value()
+            self.volume_slider.setValue(0)
+
 
     def set_volume(self, value):
         volume = int(value)
+
+        if value == 0:
+            self.player.audio_set_mute(True)
+            self.mute_button.setText("Unmute")
+            self.logger.info('Audio muted via volume slider')
+        elif value != 0:
+            self.player.audio_set_mute(False)
+            self.mute_button.setText("Mute")
+
         self.logger.debug(f'Setting volume to {volume}')
         self.player.audio_set_volume(volume)
         self.logger.info(f'Volume set to {volume}')
 
-    def seek(self, value):
-        if self.player.get_length() > 0:
-            self.updating_slider = True
-            seek_time = int(float(value) / 100 * self.player.get_length())
-            self.logger.debug(f'Seeking to {seek_time} ms')
-            self.player.set_time(seek_time)
-            self.updating_slider = False
-
-    def on_seek_start(self, event):
+    def on_seek_start(self):
         """Called when user starts dragging the time slider"""
         self.seeking = True
 
-    def on_seek_release(self, event):
+    def on_seek_release(self):
         """Called when user releases the time slider"""
         if self.player.get_length() > 0:
-            value = self.time_slider.get()
+            value = self.time_slider.value()
             seek_time = int(float(value) / 100 * self.player.get_length())
             self.logger.debug(f'Seeking to {seek_time} ms')
             self.player.set_time(seek_time)
@@ -246,21 +295,22 @@ class SimpleVideoPlayer:
     def update_time_slider(self):
         if self.player.get_length() > 0 and not self.updating_slider and not self.seeking:
             pos = self.player.get_time() / self.player.get_length() * 100
-            self.time_slider.set(pos)
-        self.root.after(500, self.update_time_slider)
+            self.time_slider.setValue(int(pos))
 
-    def on_close(self):
+    def closeEvent(self, event):
+        """Handle window close event"""
         self.logger.info('Closing application, releasing VLC player')
         try:
+            self.timer.stop()
             self.player.stop()
             self.player.release()
             self.instance.release()
         except Exception as e:
             self.logger.error(f'Error releasing VLC resources: {e}')
-        self.root.destroy()
+        event.accept()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = SimpleVideoPlayer(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_close)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    player = SimpleVideoPlayer()
+    player.show()
+    sys.exit(app.exec_())
