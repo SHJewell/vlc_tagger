@@ -1,11 +1,13 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+import os
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QToolBar, QAction,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
                              QFileDialog, QFrame, QSplitter)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QStandardPaths
 from PyQt5.QtGui import QFont
 import vlc
 import logging
+import json
 from playlist_panel import PlaylistPanel
 from m3u_panel import M3UPanel
 
@@ -27,8 +29,26 @@ class ClickableSlider(QSlider):
                 pass
         super().mousePressEvent(event)
 
-#class SettingStorage:
-#    def
+class SettingStorage:
+    def __init__(self, filename='settings.json'):
+        config_dir = QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)
+        os.makedirs(config_dir, exist_ok=True)
+        self.path = os.path.join(config_dir, filename)
+
+    def save_state(self, state: dict):
+        with open(self.path, "w", encoding="utf-8") as f:
+            import json
+            json.dump(state, f, ensure_ascii=False, indent=2)
+
+    def load_state(self) -> dict:
+        if not os.path.exists(self.path):
+            return {}
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
 
 class SimpleVideoPlayer(QMainWindow):
     def __init__(self):
@@ -59,21 +79,66 @@ class SimpleVideoPlayer(QMainWindow):
         # Create content frame with splitter for resizable panels
         content_splitter = QSplitter(Qt.Horizontal)
 
+        # ==============================================================================================================
+        # Create menu bar
+
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu('File')
+
+        open_file_action = QAction('Open Video', self)
+        open_file_action.triggered.connect(self.open_file)
+        file_menu.addAction(open_file_action)
+
+        file_menu.addSeparator()
+
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # Playlist menu
+        playlist_menu = menubar.addMenu("Playlist")
+
+        select_folder_action = playlist_menu.addAction("Select Folder")
+        select_folder_action.triggered.connect(PlaylistPanel.select_folder)
+        playlist_menu.addAction(select_folder_action)
+
+        load_m3u_action = playlist_menu.addAction("Load M3U/M3U8")
+        load_m3u_action.triggered.connect(M3UPanel.load_m3u_file)
+        playlist_menu.addAction(load_m3u_action)
+
+        playlist_menu.addSeparator()
+
+        clear_folder_action = playlist_menu.addAction("Clear Folder Playlist")
+        clear_folder_action.triggered.connect(lambda: self.clear_playlist('folder'))
+        playlist_menu.addAction(clear_folder_action)
+
+        clear_m3u_action = playlist_menu.addAction("Clear M3U Playlist")
+        clear_m3u_action.triggered.connect(lambda: self.clear_playlist('m3u'))
+        playlist_menu.addAction(clear_m3u_action)
+
+        #===============================================================================================================
         # Create video widget (VLC will embed here)
+
         self.video_widget = QWidget()
         self.video_widget.setMinimumSize(800, 600)
         self.video_widget.setStyleSheet("background-color: black;")
         content_splitter.addWidget(self.video_widget)
 
+        # ==============================================================================================================
         # Sidebar splitter for playlist panels
+
         sidebar_splitter = QSplitter(Qt.Vertical)
         sidebar_splitter.setChildrenCollapsible(False)
 
+        # =============================================================================================================
         # Folder playlist panel (top half)
+
         self.playlist_panel = PlaylistPanel(None, self.play_file)
         sidebar_splitter.addWidget(self.playlist_panel)
 
+        # =============================================================================================================
         # M3U playlist panel (bottom half)
+
         self.m3u_panel = M3UPanel(None, self.play_file)
         sidebar_splitter.addWidget(self.m3u_panel)
 
@@ -323,6 +388,20 @@ class SimpleVideoPlayer(QMainWindow):
         if self.player.get_length() > 0 and not self.updating_slider and not self.seeking:
             pos = self.player.get_time() / self.player.get_length() * 100
             self.time_slider.setValue(int(pos))
+
+    def clear_playlist(self, panel_type):
+        """Clear the specified playlist panel"""
+        if panel_type == 'folder':
+            self.playlist_panel.playlist_box.clear()
+            self.playlist_panel.playlist_files = []
+            self.playlist_panel.current_index = -1
+            self.logger.info('Cleared folder playlist')
+        elif panel_type == 'm3u':
+            self.m3u_panel.playlist_box.clear()
+            self.m3u_panel.playlist_files = []
+            self.m3u_panel.current_index = -1
+            self.m3u_panel.playlist_name_label.setText("No playlist loaded")
+            self.logger.info('Cleared M3U playlist')
 
     def closeEvent(self, event):
         """Handle window close event"""
