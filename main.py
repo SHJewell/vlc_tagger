@@ -1,15 +1,23 @@
 import sys
 import os
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QToolBar, QAction,
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QAction,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
-                             QFileDialog, QFrame, QSplitter)
+                             QFileDialog, QSplitter)
 from PyQt5.QtCore import Qt, QTimer, QStandardPaths
-from PyQt5.QtGui import QFont
-import vlc
+from PyQt5.QtGui import QImage, QPixmap
+import cv2
 import logging
 import json
 from playlist_panel import PlaylistPanel
 from m3u_panel import M3UPanel
+
+# Try to import pygame for audio support
+try:
+    import pygame
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    print("Warning: pygame not available. Audio playback will be disabled.")
 
 class ClickableSlider(QSlider):
     def mousePressEvent(self, event):
@@ -68,8 +76,27 @@ class SimpleVideoPlayer(QMainWindow):
         )
         self.logger.debug('Initializing SimpleVideoPlayer')
 
-        self.setWindowTitle("Simple Video Player")
+        self.setWindowTitle("Simple Video Player (OpenCV)")
         self.setGeometry(100, 100, 1200, 800)
+
+        # OpenCV video capture and playback state
+        self.video_capture = None
+        self.is_playing = False
+        self.is_paused = False
+        self.current_frame = 0
+        self.total_frames = 0
+        self.fps = 30
+        self.current_file = None
+        self.is_muted = False
+        self.volume = 100
+
+        # Initialize pygame for audio if available
+        if AUDIO_AVAILABLE:
+            try:
+                pygame.mixer.init()
+                self.logger.info('Pygame audio initialized')
+            except Exception as e:
+                self.logger.error(f'Failed to initialize pygame audio: {e}')
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -117,12 +144,14 @@ class SimpleVideoPlayer(QMainWindow):
         playlist_menu.addAction(clear_m3u_action)
 
         #===============================================================================================================
-        # Create video widget (VLC will embed here)
+        # Create video display widget (QLabel to show OpenCV frames)
 
-        self.video_widget = QWidget()
-        self.video_widget.setMinimumSize(800, 600)
-        self.video_widget.setStyleSheet("background-color: black;")
-        content_splitter.addWidget(self.video_widget)
+        self.video_label = QLabel()
+        self.video_label.setMinimumSize(800, 600)
+        self.video_label.setStyleSheet("background-color: black;")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setScaledContents(False)
+        content_splitter.addWidget(self.video_label)
 
         # ==============================================================================================================
         # Sidebar splitter for playlist panels
@@ -157,9 +186,6 @@ class SimpleVideoPlayer(QMainWindow):
         controls_frame = QWidget()
         controls_layout = QHBoxLayout(controls_frame)
 
-        # VLC instance and media player
-        self.instance = vlc.Instance()
-        self.player = self.instance.media_player_new()
 
         # Open button
         self.open_button = QPushButton("Open Video")
@@ -217,10 +243,14 @@ class SimpleVideoPlayer(QMainWindow):
         self.updating_slider = False
         self.seeking = False
 
-        # Timer for updating time slider
+        # Timer for updating video frames and time slider
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_time_slider)
-        self.timer.start(500)
+        self.timer.timeout.connect(self.update_frame)
+
+        # Timer for updating time slider
+        self.slider_timer = QTimer()
+        self.slider_timer.timeout.connect(self.update_time_slider)
+        self.slider_timer.start(100)
 
     def open_file(self):
         self.logger.debug('Open file dialog triggered')
@@ -273,35 +303,86 @@ class SimpleVideoPlayer(QMainWindow):
             self.playlist_panel.clear_visual_selection()
             self.m3u_panel.clear_visual_selection()
 
-        # Set VLC to use the video widget
-        if sys.platform.startswith('linux'):  # for Linux using the X Server
-            self.player.set_xwindow(self.video_widget.winId())
-        elif sys.platform == "win32":  # for Windows
-            self.player.set_hwnd(self.video_widget.winId())
-        elif sys.platform == "darwin":  # for MacOS
-            self.player.set_nsobject(int(self.video_widget.winId()))
+        # Stop current playback if any
+        if self.video_capture is not None:
+            self.video_capture.release()
+            self.timer.stop()
+            if AUDIO_AVAILABLE and pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
 
-        media = self.instance.media_new(file_path)
-        self.player.set_media(media)
-        self.player.play()
+        # Open the video file with OpenCV
+        self.current_file = file_path
+        self.video_capture = cv2.VideoCapture(file_path)
+
+        if not self.video_capture.isOpened():
+            self.logger.error(f'Failed to open video file: {file_path}')
+            return
+
+        # Get video properties
+        self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+        if self.fps <= 0:
+            self.fps = 30  # Default FPS if unable to get it
+
+        self.current_frame = 0
+        self.is_playing = True
+        self.is_paused = False
+
+        # Start playback timer
+        interval = int(1000 / self.fps)
+        self.timer.start(interval)
+
+        # Try to play audio with pygame if available
+        if AUDIO_AVAILABLE:
+            try:
+                pygame.mixer.music.load(file_path)
+                pygame.mixer.music.set_volume(self.volume / 100.0)
+                pygame.mixer.music.play()
+                self.logger.info('Audio playback started with pygame')
+            except Exception as e:
+                self.logger.warning(f'Could not play audio: {e}')
+
         self.play_pause_button.setText("Pause")
+        self.logger.info(f'Video loaded: {self.total_frames} frames at {self.fps} fps')
 
     def play_pause(self):
         self.logger.debug('Play/Pause button pressed')
-        is_playing = self.player.is_playing()
-        if is_playing:
+        if self.video_capture is None:
+            self.logger.info('No video loaded')
+            return
+
+        if self.is_playing and not self.is_paused:
             self.logger.info('Pausing playback')
-            self.player.pause()
+            self.is_paused = True
+            self.timer.stop()
+            if AUDIO_AVAILABLE and pygame.mixer.music.get_busy():
+                pygame.mixer.music.pause()
             self.play_pause_button.setText("Play")
         else:
-            self.logger.info('Starting playback')
-            self.player.play()
+            self.logger.info('Starting/Resuming playback')
+            self.is_paused = False
+            self.is_playing = True
+            interval = int(1000 / self.fps)
+            self.timer.start(interval)
+            if AUDIO_AVAILABLE:
+                pygame.mixer.music.unpause()
             self.play_pause_button.setText("Pause")
 
     def stop(self):
         self.logger.debug('Stop button pressed')
-        self.player.stop()
-        self.play_pause_button.setText("Play")
+        if self.video_capture is not None:
+            self.timer.stop()
+            self.is_playing = False
+            self.is_paused = False
+            self.current_frame = 0
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            if AUDIO_AVAILABLE and pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
+            # Clear the display
+            self.video_label.clear()
+            self.video_label.setStyleSheet("background-color: black;")
+            self.play_pause_button.setText("Play")
+            self.time_slider.setValue(0)
 
     def previous_track(self):
         self.logger.debug('Previous track button pressed')
@@ -343,32 +424,43 @@ class SimpleVideoPlayer(QMainWindow):
 
     def mute(self):
         self.logger.debug('Mute button pressed')
-        is_muted = self.player.audio_get_mute()
-        self.player.audio_toggle_mute()
-        if is_muted:
-            self.logger.info('Audio unmuted')
-            self.mute_button.setText("Mute")
-            self.volume_slider.setValue(self.previous_volume)
-        else:
+        if not AUDIO_AVAILABLE:
+            self.logger.warning('Audio not available')
+            return
+
+        self.is_muted = not self.is_muted
+        if self.is_muted:
             self.logger.info('Audio muted')
             self.mute_button.setText("Unmute")
-            self.previous_volume = self.volume_slider.value()
+            self.previous_volume = self.volume
+            self.volume = 0
+            pygame.mixer.music.set_volume(0)
             self.volume_slider.setValue(0)
+        else:
+            self.logger.info('Audio unmuted')
+            self.mute_button.setText("Mute")
+            self.volume = self.previous_volume
+            pygame.mixer.music.set_volume(self.volume / 100.0)
+            self.volume_slider.setValue(self.previous_volume)
 
 
     def set_volume(self, value):
+        if not AUDIO_AVAILABLE:
+            return
+
         volume = int(value)
+        self.volume = volume
 
         if value == 0:
-            self.player.audio_set_mute(True)
+            self.is_muted = True
             self.mute_button.setText("Unmute")
             self.logger.info('Audio muted via volume slider')
-        elif value != 0:
-            self.player.audio_set_mute(False)
+        else:
+            self.is_muted = False
             self.mute_button.setText("Mute")
 
         self.logger.debug(f'Setting volume to {volume}')
-        self.player.audio_set_volume(volume)
+        pygame.mixer.music.set_volume(volume / 100.0)
         self.logger.info(f'Volume set to {volume}')
 
     def on_seek_start(self):
@@ -377,17 +469,82 @@ class SimpleVideoPlayer(QMainWindow):
 
     def on_seek_release(self):
         """Called when user releases the time slider"""
-        if self.player.get_length() > 0:
+        if self.video_capture is not None and self.total_frames > 0:
             value = self.time_slider.value()
-            seek_time = int(float(value) / 100 * self.player.get_length())
-            self.logger.debug(f'Seeking to {seek_time} ms')
-            self.player.set_time(seek_time)
+            target_frame = int(float(value) / 100 * self.total_frames)
+            self.logger.debug(f'Seeking to frame {target_frame}')
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+            self.current_frame = target_frame
+
+            # Seek audio if available
+            if AUDIO_AVAILABLE and pygame.mixer.music.get_busy():
+                target_time_sec = target_frame / self.fps
+                try:
+                    # pygame doesn't support seeking well, so we need to restart playback from the position
+                    # This is a limitation of pygame - it doesn't support precise seeking
+                    pygame.mixer.music.play(start=target_time_sec)
+                    if self.is_paused:
+                        pygame.mixer.music.pause()
+                except Exception as e:
+                    self.logger.warning(f'Could not seek audio: {e}')
+
         self.seeking = False
 
     def update_time_slider(self):
-        if self.player.get_length() > 0 and not self.updating_slider and not self.seeking:
-            pos = self.player.get_time() / self.player.get_length() * 100
+        """Update the time slider position based on current playback"""
+        if self.video_capture is not None and self.total_frames > 0 and not self.seeking:
+            pos = (self.current_frame / self.total_frames) * 100
             self.time_slider.setValue(int(pos))
+
+    def update_frame(self):
+        """Read and display the next frame from the video"""
+        if self.video_capture is None or not self.is_playing or self.is_paused:
+            return
+
+        ret, frame = self.video_capture.read()
+
+        if ret:
+            # Convert the frame from BGR (OpenCV format) to RGB (Qt format)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Get frame dimensions
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+
+            # Convert to QImage
+            qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+
+            # Scale the image to fit the label while maintaining aspect ratio
+            scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
+                self.video_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+
+            # Display the frame
+            self.video_label.setPixmap(scaled_pixmap)
+
+            self.current_frame += 1
+        else:
+            # End of video reached
+            self.logger.info('End of video reached')
+            self.timer.stop()
+            self.is_playing = False
+            self.play_pause_button.setText("Play")
+
+            # Check if we should play the next track
+            next_track = None
+            if self.active_panel == 'folder':
+                next_track = self.playlist_panel.next_track()
+                if not next_track:
+                    next_track = self.m3u_panel.next_track()
+            else:
+                next_track = self.m3u_panel.next_track()
+                if not next_track:
+                    next_track = self.playlist_panel.next_track()
+
+            if next_track:
+                self.play_file(next_track)
 
     def clear_playlist(self, panel_type):
         """Clear the specified playlist panel"""
@@ -405,14 +562,17 @@ class SimpleVideoPlayer(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close event"""
-        self.logger.info('Closing application, releasing VLC player')
+        self.logger.info('Closing application, releasing resources')
         try:
             self.timer.stop()
-            self.player.stop()
-            self.player.release()
-            self.instance.release()
+            self.slider_timer.stop()
+            if self.video_capture is not None:
+                self.video_capture.release()
+            if AUDIO_AVAILABLE:
+                pygame.mixer.music.stop()
+                pygame.mixer.quit()
         except Exception as e:
-            self.logger.error(f'Error releasing VLC resources: {e}')
+            self.logger.error(f'Error releasing resources: {e}')
         event.accept()
 
 if __name__ == "__main__":
