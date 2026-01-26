@@ -251,9 +251,13 @@ class PlayerWindow(QMainWindow):
             self.vlc_media = self.vlc_instance.media_new(file_path)
             self.vlc_player.set_media(self.vlc_media)
 
-            # Set up event manager to detect end of playback
-            event_manager = self.vlc_player.event_manager()
-            event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_media_end)
+            # Attach end-of-media event (store manager to detach later)
+            try:
+                self._vlc_event_manager = self.vlc_player.event_manager()
+                # Avoid attaching multiple handlers if already attached
+                self._vlc_event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_media_end)
+            except Exception as e:
+                self.logger.warning(f'Could not attach VLC end event: {e}')
 
             # Set volume
             self.vlc_player.audio_set_volume(self.volume)
@@ -290,16 +294,38 @@ class PlayerWindow(QMainWindow):
     def _on_media_end(self, event):
         """Called when media playback ends"""
         self.logger.info('Media playback ended')
+        # Ensure GUI/thread-safety by calling next_track on the Qt main thread
+        QTimer.singleShot(0, lambda: self._handle_media_end())
+
+    def _handle_media_end(self):
+        """Handle end-of-media actions on the Qt thread"""
         self.is_playing = False
         self.play_pause_button.setText("▶ Play")
 
-        # Auto-play next track
+        # Stop current playback resources (detaches events)
+        self._stop_playback()
+
+        # Auto-play next track via file window
         QTimer.singleShot(100, self.next_track)
 
     def _stop_playback(self):
-        """Stop all playback"""
+        """Stop all playback and detach events"""
         if self.vlc_player:
-            self.vlc_player.stop()
+            try:
+                self.vlc_player.stop()
+            except Exception:
+                pass
+
+        # Detach previously attached end event to avoid duplicate callbacks
+        try:
+            if hasattr(self, '_vlc_event_manager') and self._vlc_event_manager:
+                try:
+                    self._vlc_event_manager.event_detach(vlc.EventType.MediaPlayerEndReached)
+                except Exception:
+                    pass
+                self._vlc_event_manager = None
+        except Exception:
+            pass
 
         self.is_playing = False
         self.is_paused = False
@@ -405,20 +431,34 @@ class PlayerWindow(QMainWindow):
         self.logger.debug(f'Seeked to position: {position}')
 
     def _update_time_slider(self):
-        """Update time slider position"""
+        """Update time slider position and fallback-check for ended state"""
         if not self.vlc_player or self.seeking:
             return
 
         # Get current position (0.0 to 1.0)
-        position = self.vlc_player.get_position()
-        if position >= 0:
-            self.time_slider.setValue(int(position * 100))
+        try:
+            position = self.vlc_player.get_position()
+            if position >= 0:
+                self.time_slider.setValue(int(position * 100))
+        except Exception:
+            position = -1
 
         # Get current time in milliseconds
-        current_time_ms = self.vlc_player.get_time()
-        if current_time_ms >= 0:
-            current_seconds = current_time_ms / 1000.0
-            self.current_time_label.setText(self._format_time(current_seconds))
+        try:
+            current_time_ms = self.vlc_player.get_time()
+            if current_time_ms >= 0:
+                current_seconds = current_time_ms / 1000.0
+                self.current_time_label.setText(self._format_time(current_seconds))
+        except Exception:
+            pass
+
+        # Fallback: check VLC player state for Ended
+        try:
+            if VLC_AVAILABLE and self.vlc_player and self.vlc_player.get_state() == vlc.State.Ended:
+                # Ensure we only handle it once
+                QTimer.singleShot(0, lambda: self._handle_media_end())
+        except Exception:
+            pass
 
     def _format_time(self, seconds):
         """Format seconds as MM:SS"""
