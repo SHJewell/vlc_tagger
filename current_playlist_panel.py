@@ -13,16 +13,18 @@ import random
 class CurrentPlaylistPanel(QWidget):
     """Panel showing current playlist/directory being played"""
 
-    def __init__(self, parent=None, play_callback=None):
+    def __init__(self, parent=None, play_callback=None, config_manager=None):
         super().__init__(parent)
 
         self.logger = logging.getLogger(__name__)
         self.play_callback = play_callback
+        self.config_manager = config_manager
 
         self.playlist_files = []
         self.current_index = -1
         self.shuffle_mode = False
         self.shuffle_history = []
+        self.current_folder = None
 
         self._setup_ui()
 
@@ -75,6 +77,8 @@ class CurrentPlaylistPanel(QWidget):
             self.logger.info(f'Loading folder: {folder_path}')
             self._clear_playlist()
 
+            self.current_folder = folder_path
+
             # Media file extensions
             media_extensions = ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
                               '.mp3', '.wav', '.flac', '.ogg', '.m4a')
@@ -90,6 +94,15 @@ class CurrentPlaylistPanel(QWidget):
 
                 self.playlist_name_label.setText(f"Folder: {os.path.basename(folder_path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from folder')
+
+                # Save to config
+                if self.config_manager:
+                    self.config_manager.update_playlist_state(
+                        playlist=self.playlist_files,
+                        index=0 if self.playlist_files else -1,
+                        folder=folder_path,
+                        auto_save=True
+                    )
 
                 # Auto-play first file
                 if self.playlist_files:
@@ -148,6 +161,16 @@ class CurrentPlaylistPanel(QWidget):
                 self.playlist_name_label.setText(f"Playlist: {os.path.basename(file_path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from M3U')
 
+                # Save to config
+                if self.config_manager:
+                    self.config_manager.update_playlist_state(
+                        playlist=self.playlist_files,
+                        index=0 if self.playlist_files else -1,
+                        folder=playlist_dir,
+                        auto_save=True
+                    )
+                    self.config_manager.add_recent_playlist(file_path, auto_save=True)
+
                 # Auto-play first file
                 if self.playlist_files:
                     self.current_index = 0
@@ -164,7 +187,17 @@ class CurrentPlaylistPanel(QWidget):
         self.file_list.clear()
         self.current_index = -1
         self.shuffle_history.clear()
+        self.current_folder = None
         self.playlist_name_label.setText("No playlist loaded")
+
+        # Save cleared state to config
+        if self.config_manager:
+            self.config_manager.update_playlist_state(
+                playlist=[],
+                index=-1,
+                folder=None,
+                auto_save=True
+            )
 
     def _on_file_double_clicked(self, item):
         """Handle double-click on a file"""
@@ -179,6 +212,11 @@ class CurrentPlaylistPanel(QWidget):
         if file_path in self.playlist_files:
             self.current_index = self.playlist_files.index(file_path)
             self.file_list.setCurrentRow(self.current_index)
+
+            # Save current index to config
+            if self.config_manager:
+                self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+
             self.logger.debug(f'Current file set to index {self.current_index}')
 
     def next_track(self):
@@ -203,6 +241,11 @@ class CurrentPlaylistPanel(QWidget):
 
         self.current_index = next_index
         self.file_list.setCurrentRow(next_index)
+
+        # Save current index to config
+        if self.config_manager:
+            self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+
         return self.playlist_files[next_index]
 
     def previous_track(self):
@@ -222,6 +265,11 @@ class CurrentPlaylistPanel(QWidget):
 
         self.current_index = prev_index
         self.file_list.setCurrentRow(prev_index)
+
+        # Save current index to config
+        if self.config_manager:
+            self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+
         return self.playlist_files[prev_index]
 
     def set_shuffle_mode(self, enabled):
@@ -236,3 +284,42 @@ class CurrentPlaylistPanel(QWidget):
         if 0 <= self.current_index < len(self.playlist_files):
             return self.playlist_files[self.current_index]
         return None
+
+    def restore_playlist(self, playlist_files, index, folder):
+        """
+        Restore playlist state from saved config
+
+        Args:
+            playlist_files: List of file paths
+            index: Current playlist index
+            folder: Current folder path
+        """
+        self.logger.info(f'Restoring playlist with {len(playlist_files)} files')
+
+        # Clear current playlist first
+        self._clear_playlist()
+
+        # Restore files
+        self.playlist_files = playlist_files.copy()
+        self.current_index = index if 0 <= index < len(playlist_files) else -1
+        self.current_folder = folder
+
+        # Populate the file list
+        for file_path in playlist_files:
+            display_name = os.path.basename(file_path)
+            self.file_list.addItem(display_name)
+
+        # Set current selection
+        if 0 <= self.current_index < len(playlist_files):
+            self.file_list.setCurrentRow(self.current_index)
+
+        # Update label
+        if folder:
+            self.playlist_name_label.setText(f"Folder: {os.path.basename(folder)}")
+        elif playlist_files:
+            self.playlist_name_label.setText(f"Playlist: {len(playlist_files)} files")
+        else:
+            self.playlist_name_label.setText("No playlist loaded")
+
+        self.logger.info(f'Playlist restored with index {self.current_index}')
+

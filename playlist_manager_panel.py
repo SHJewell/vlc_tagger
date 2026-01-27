@@ -12,15 +12,17 @@ import logging
 class PlaylistManagerPanel(QWidget):
     """Panel for managing multiple M3U playlists"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, config_manager=None):
         super().__init__(parent)
 
         self.logger = logging.getLogger(__name__)
+        self.config_manager = config_manager
         self.playlists = {}
         self.playlist_dir = None
         self.current_track = None
 
         self._setup_ui()
+        self._load_from_config()
 
     def _setup_ui(self):
         """Setup the user interface"""
@@ -51,6 +53,18 @@ class PlaylistManagerPanel(QWidget):
         self.new_playlist_button.setEnabled(False)
         layout.addWidget(self.new_playlist_button)
 
+    def _load_from_config(self):
+        """Load playlist directory from config if available"""
+        if not self.config_manager:
+            return
+
+        saved_dir = self.config_manager.get_playlist_directory()
+        if saved_dir and os.path.isdir(saved_dir):
+            self.playlist_dir = saved_dir
+            self.dir_label.setText(f"Directory: {saved_dir}")
+            self.new_playlist_button.setEnabled(True)
+            self._load_playlists()
+
     def _select_playlist_directory(self):
         """Open dialog to select directory containing playlists"""
         dir_path = QFileDialog.getExistingDirectory(self, "Select Playlist Directory")
@@ -59,6 +73,11 @@ class PlaylistManagerPanel(QWidget):
             self.playlist_dir = dir_path
             self.dir_label.setText(f"Directory: {dir_path}")
             self.new_playlist_button.setEnabled(True)
+
+            # Save to config
+            if self.config_manager:
+                self.config_manager.set_playlist_directory(dir_path, auto_save=True)
+
             self._load_playlists()
 
     def _load_playlists(self):
@@ -160,6 +179,10 @@ class PlaylistManagerPanel(QWidget):
             files.append(self.current_track)
             self.playlists[playlist_path] = files
             self._save_m3u_file(playlist_path, files)
+
+        # Add to recent playlists
+        if self.config_manager:
+            self.config_manager.add_recent_playlist(playlist_path, auto_save=True)
 
         self._update_highlighting()
 

@@ -13,13 +13,14 @@ from playlist_manager_panel import PlaylistManagerPanel
 class FileWindow(QMainWindow):
     """File window for managing playlists and viewing current playlist"""
 
-    def __init__(self, player_window=None):
+    def __init__(self, player_window=None, config_manager=None):
         super().__init__()
 
         self.logger = logging.getLogger(__name__)
         self.logger.debug('Initializing FileWindow')
 
         self.player_window = player_window
+        self.config_manager = config_manager
 
         self.setWindowTitle("Playlist Manager")
         self.setGeometry(920, 100, 600, 800)
@@ -42,12 +43,14 @@ class FileWindow(QMainWindow):
         # Left column: Current Playlist
         self.current_playlist_panel = CurrentPlaylistPanel(
             parent=self,
-            play_callback=self._on_play_file
+            play_callback=self._on_play_file,
+            config_manager=self.config_manager
         )
         splitter.addWidget(self.current_playlist_panel)
 
         # Right column: Playlist Manager
-        self.playlist_manager_panel = PlaylistManagerPanel(parent=self)
+        self.playlist_manager_panel = PlaylistManagerPanel(parent=self,
+                                                           config_manager=self.config_manager)
         splitter.addWidget(self.playlist_manager_panel)
 
         # Set initial sizes (60% for current playlist, 40% for manager)
@@ -127,3 +130,20 @@ class FileWindow(QMainWindow):
             # Player changed file (update current file in playlist)
             self.current_playlist_panel.set_current_file(data)
             self.playlist_manager_panel.set_current_track(data)
+
+    def closeEvent(self, event):
+        """Handle window close"""
+        self.logger.info('Closing file window')
+
+        # Save window position
+        if self.config_manager:
+            geometry = self.geometry()
+            self.config_manager.set_window_position(
+                'file',
+                geometry.x(), geometry.y(),
+                geometry.width(), geometry.height(),
+                auto_save=True
+            )
+
+        event.accept()
+

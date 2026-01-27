@@ -40,7 +40,7 @@ class ClickableSlider(QSlider):
 class PlayerWindow(QMainWindow):
     """Player window with video/audio display and playback controls"""
     
-    def __init__(self, file_window_callback=None):
+    def __init__(self, file_window_callback=None, config_manager=None):
         super().__init__()
         
         self.logger = logging.getLogger(__name__)
@@ -49,6 +49,9 @@ class PlayerWindow(QMainWindow):
         # Callback to notify file window of track changes
         self.file_window_callback = file_window_callback
         
+        # Config manager
+        self.config_manager = config_manager
+
         # VLC player state
         self.vlc_instance = None
         self.vlc_player = None
@@ -64,6 +67,11 @@ class PlayerWindow(QMainWindow):
         self.shuffle_mode = False
         self.seeking = False
         
+        # Load saved volume from config
+        if self.config_manager:
+            self.volume = self.config_manager.get_volume()
+            self.shuffle_mode = self.config_manager.get_shuffle_mode()
+
         self.setWindowTitle("Media Player")
         self.setGeometry(100, 100, 800, 700)
         
@@ -158,6 +166,7 @@ class PlayerWindow(QMainWindow):
         # Shuffle button
         self.shuffle_button = QPushButton("🔀 Shuffle")
         self.shuffle_button.setCheckable(True)
+        self.shuffle_button.setChecked(self.shuffle_mode)  # Use saved shuffle mode
         self.shuffle_button.clicked.connect(self._toggle_shuffle)
         controls_layout.addWidget(self.shuffle_button)
         
@@ -169,7 +178,7 @@ class PlayerWindow(QMainWindow):
         
         self.volume_slider = ClickableSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(100)
+        self.volume_slider.setValue(self.volume)  # Use saved volume
         self.volume_slider.setMaximumWidth(100)
         self.volume_slider.valueChanged.connect(self._set_volume)
         controls_layout.addWidget(self.volume_slider)
@@ -246,6 +255,10 @@ class PlayerWindow(QMainWindow):
 
         self.current_file = file_path
         
+        # Save current file to config
+        if self.config_manager:
+            self.config_manager.set_current_file(file_path, auto_save=True)
+
         try:
             # Create VLC media
             self.vlc_media = self.vlc_instance.media_new(file_path)
@@ -378,6 +391,11 @@ class PlayerWindow(QMainWindow):
     def _toggle_shuffle(self):
         """Toggle shuffle mode"""
         self.shuffle_mode = self.shuffle_button.isChecked()
+
+        # Save shuffle mode to config
+        if self.config_manager:
+            self.config_manager.set_shuffle_mode(self.shuffle_mode, auto_save=True)
+
         if self.file_window_callback:
             self.file_window_callback('shuffle', self.shuffle_mode)
         self.logger.info(f'Shuffle mode: {self.shuffle_mode}')
@@ -411,6 +429,10 @@ class PlayerWindow(QMainWindow):
         # Apply volume to VLC player
         if self.vlc_player:
             self.vlc_player.audio_set_volume(self.volume)
+
+        # Save volume to config
+        if self.config_manager:
+            self.config_manager.set_volume(self.volume, auto_save=True)
 
         self.logger.debug(f'Volume set to: {self.volume}')
 
@@ -469,6 +491,17 @@ class PlayerWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close"""
         self.logger.info('Closing player window')
+
+        # Save window position
+        if self.config_manager:
+            geometry = self.geometry()
+            self.config_manager.set_window_position(
+                'player',
+                geometry.x(), geometry.y(),
+                geometry.width(), geometry.height(),
+                auto_save=True
+            )
+
         self.slider_timer.stop()
 
         # Stop all playback
