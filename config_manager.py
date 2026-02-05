@@ -55,7 +55,7 @@ class ConfigManager:
             # Playback settings
             'volume': 100,
             'current_file': None,
-            'current_playlist': [],
+            'current_playlist_path': None,
             'current_folder': None,
             'last_position': 0.0,
             'shuffle_mode': False,
@@ -176,9 +176,9 @@ class ConfigManager:
         """Get the current folder path"""
         return self.config.get('current_folder')
 
-    def get_current_playlist(self) -> List[str]:
+    def get_current_playlist_path(self) -> Optional[str]:
         """Get the current playlist files"""
-        return self.config.get('current_playlist', [])
+        return self.config.get('current_playlist_path', )
 
     def get_current_playlist_index(self) -> int:
         """Get the current playlist index"""
@@ -258,9 +258,14 @@ class ConfigManager:
         if auto_save:
             self.save()
 
-    def set_current_playlist(self, playlist: List[str], auto_save: bool = True):
+    def set_current_playlist_path(self, playlist_path: Optional[str], auto_save: bool = True):
         """Set the current playlist files"""
-        self.config['current_playlist'] = playlist
+        self.config['current_playlist_path'] = playlist_path
+
+        # Add to recent playlists
+        if playlist_path:
+            self.add_recent_playlist(playlist_path, auto_save=False)
+
         if auto_save:
             self.save()
 
@@ -393,20 +398,20 @@ class ConfigManager:
         if auto_save:
             self.save()
 
-    def update_playlist_state(self, playlist: List[str] = None,
-                             index: int = None, folder: str = None,
-                             auto_save: bool = True):
+    def update_playlist_state(self, playlist_path: str = None,
+                              index: int = None, folder: str = None,
+                              auto_save: bool = True):
         """
         Update multiple playlist state values at once
 
         Args:
-            playlist: Current playlist files
+            playlist_path: Current playlist file path
             index: Current playlist index
             folder: Current folder path
             auto_save: Whether to save immediately
         """
-        if playlist is not None:
-            self.set_current_playlist(playlist, auto_save=False)
+        if playlist_path is not None:
+            self.set_current_playlist_path(playlist_path, auto_save=False)
 
         if index is not None:
             self.set_current_playlist_index(index, auto_save=False)

@@ -14,6 +14,7 @@ TODO:
     Audio mixer?
 """
 import sys
+import os
 import logging
 from PyQt5.QtWidgets import QApplication
 
@@ -89,13 +90,19 @@ class VLCTaggerApp:
     def _restore_previous_state(self):
         """Restore previous playback state from config"""
         # Restore playlist
-        playlist = self.config_manager.get_current_playlist()
+        playlist_path = self.config_manager.get_current_playlist_path()
         index = self.config_manager.get_current_playlist_index()
         folder = self.config_manager.get_current_folder()
 
-        if playlist:
+        if playlist_path and os.path.exists(playlist_path):
+            # Restore saved playlist
             self.file_window.current_playlist_panel.restore_playlist(
-                playlist, index, folder
+                playlist_path, index, None
+            )
+        elif folder and os.path.exists(folder):
+            # Restore folder view
+            self.file_window.current_playlist_panel.restore_playlist(
+                None, index, folder
             )
 
         # Don't auto-play on startup - just restore the state
