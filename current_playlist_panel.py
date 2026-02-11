@@ -1,8 +1,8 @@
 """
 Current Playlist Panel - Shows the current playlist or directory being played
 """
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget,
-                             QLabel, QDialog, QRadioButton, QButtonGroup, QVBoxLayout, QHBoxLayout)
+from PyQt5.QtWidgets import (QWidget, QDialog, QStackedWidget, QListView, QLineEdit, QPushButton, QListWidget,
+                             QLabel, QFileDialog, QVBoxLayout)
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -11,6 +11,57 @@ import logging
 import random
 
 from typing import Optional, Dict, Any, List
+
+# Media file extensions
+MEDIA_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
+                    '.mp3', '.wav', '.flac', '.ogg', '.m4a')
+
+PLAYLIST_EXTENSIONS = ('.m3u', '.m3u8')
+
+def getOpenFilesAndDirs(parent=None, caption='', directory='',
+                        filter='', initialFilter='', options=None):
+    # Source - https://stackoverflow.com/a/64340482
+    # Posted by musicamante
+    # Retrieved 2026-02-11, License - CC BY-SA 4.0
+    def updateText():
+        def updateText():
+            selected = view.selectionModel().selectedRows()
+            if selected:
+                lineEdit.setText(selected[0].data())
+
+    dialog = QFileDialog(parent, windowTitle=caption)
+    dialog.setFileMode(dialog.AnyFile)
+    if options:
+        dialog.setOptions(options)
+    dialog.setOption(dialog.DontUseNativeDialog, True)
+    if directory:
+        dialog.setDirectory(directory)
+    if filter:
+        dialog.setNameFilter(filter)
+        if initialFilter:
+            dialog.selectNameFilter(initialFilter)
+
+    # by default, if a directory is opened in file listing mode,
+    # QFileDialog.accept() shows the contents of that directory, but we
+    # need to be able to "open" directories as we can do with files, so we
+    # just override accept() with the default QDialog implementation which
+    # will just return exec_()
+    dialog.accept = lambda: QDialog.accept(dialog)
+
+    # there are many item views in a non-native dialog, but the ones displaying
+    # the actual contents are created inside a QStackedWidget; they are a
+    # QTreeView and a QListView, and the tree is only used when the
+    # viewMode is set to QFileDialog.Details, which is not this case
+    stackedWidget = dialog.findChild(QStackedWidget)
+    view = stackedWidget.findChild(QListView)
+    view.selectionModel().selectionChanged.connect(updateText)
+
+    lineEdit = dialog.findChild(QLineEdit)
+    # clear the line edit contents whenever the current directory changes
+    dialog.directoryEntered.connect(lambda: lineEdit.setText(''))
+
+    dialog.exec_()
+    return dialog.selectedFiles()[0] if dialog.selectedFiles() else None
 
 class CurrentPlaylistPanel(QWidget):
     """Panel showing current playlist/directory being played"""
@@ -46,12 +97,12 @@ class CurrentPlaylistPanel(QWidget):
         button_layout = QVBoxLayout()
 
         self.load_folder_button = QPushButton("📁 Load Folder")
-        self.load_folder_button.clicked.connect(self._load_folder)
+        self.load_folder_button.clicked.connect(self._load_current_playlist)
         button_layout.addWidget(self.load_folder_button)
 
-        self.load_m3u_button = QPushButton("📄 Load M3U Playlist")
-        self.load_m3u_button.clicked.connect(self._load_m3u)
-        button_layout.addWidget(self.load_m3u_button)
+        # self.load_m3u_button = QPushButton("📄 Load M3U Playlist")
+        # self.load_m3u_button.clicked.connect(self._load_m3u)
+        # button_layout.addWidget(self.load_m3u_button)
 
         layout.addLayout(button_layout)
 
@@ -66,57 +117,30 @@ class CurrentPlaylistPanel(QWidget):
         self.file_list.itemDoubleClicked.connect(self._on_file_double_clicked)
         layout.addWidget(self.file_list)
 
-        # Clear button
-        self.clear_button = QPushButton("Clear Playlist")
-        self.clear_button.clicked.connect(self._clear_playlist)
-        layout.addWidget(self.clear_button)
-
     def _load_current_playlist(self):
-        """Select folder or M3U playlist with mode selection"""
-        # Ask user what they want to load
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Load Playlist")
-        layout = QVBoxLayout(dialog)
+        """Load either a folder or M3U playlist"""
+        # dialog = QFileDialog(self, "Select Folder or M3U Playlist")
+        # dialog.setFileMode(QFileDialog.AnyFile)
+        # dialog.setOption(QFileDialog.DontConfirmOverwrite)
+        #
+        # # Allow both files and directories
+        # dialog.setNameFilters(["M3U Playlists (*.m3u *.m3u8)", "All Files (*)"])
 
-        group = QButtonGroup(dialog)
-        folder_radio = QRadioButton("Load Folder")
-        file_radio = QRadioButton("Load M3U Playlist")
-        group.addButton(folder_radio)
-        group.addButton(file_radio)
-        folder_radio.setChecked(True)
+        file = getOpenFilesAndDirs(
+            parent=self,
+            caption="Select Folder or M3U Playlist",
+            filter="M3U Playlists (*.m3u *.m3u8);;All Files (*)"
+        )
 
-        layout.addWidget(folder_radio)
-        layout.addWidget(file_radio)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        ok_button = QPushButton("OK")
-        cancel_button = QPushButton("Cancel")
-        ok_button.clicked.connect(dialog.accept)
-        cancel_button.clicked.connect(dialog.reject)
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-
-        if dialog.exec_():
-            selected_path = None
-            if folder_radio.isChecked():
-                from PyQt5.QtWidgets import QFileDialog
-                selected_path = QFileDialog.getExistingDirectory(self, "Select Folder")
-                if selected_path:
-                    self._load_folder(selected_path)
+        if file:
+            if os.path.isdir(file):
+                # It's a folder
+                self._load_folder(file)
+            elif file.lower().endswith(('.m3u', '.m3u8')):
+                # It's an M3U file
+                self._load_m3u(file)
             else:
-                from PyQt5.QtWidgets import QFileDialog
-                selected_path, _ = QFileDialog.getOpenFileName(
-                    self,
-                    "Select M3U Playlist",
-                    "",
-                    "M3U Playlists (*.m3u *.m3u8);;All Files (*)"
-                )
-                if selected_path:
-                    self._load_m3u(selected_path)
-
-            return selected_path
+                self.logger.warning(f"Unsupported selection: {file}")
 
         return None
 
@@ -129,15 +153,11 @@ class CurrentPlaylistPanel(QWidget):
 
             self.current_folder = path
 
-            # Media file extensions
-            media_extensions = ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
-                              '.mp3', '.wav', '.flac', '.ogg', '.m4a')
-
             try:
                 files = os.listdir(path)
 
                 for file in sorted(files):
-                    if file.lower().endswith(media_extensions):
+                    if file.lower().endswith(MEDIA_EXTENSIONS):
                         full_path = os.path.join(path, file)
                         self.playlist_files.append(full_path)
                         self.file_list.addItem(file)
@@ -148,7 +168,7 @@ class CurrentPlaylistPanel(QWidget):
                 # Save to config
                 if self.config_manager:
                     self.config_manager.update_playlist_state(
-                        playlist=self.playlist_files,
+                        playlist_path=self.playlist_files,
                         index=0 if self.playlist_files else -1,
                         folder=path,
                         auto_save=True
@@ -208,7 +228,7 @@ class CurrentPlaylistPanel(QWidget):
                 # Save to config
                 if self.config_manager:
                     self.config_manager.update_playlist_state(
-                        playlist=self.playlist_files,
+                        playlist_path=self.playlist_files,
                         index=0 if self.playlist_files else -1,
                         folder=playlist_dir,
                         auto_save=True
