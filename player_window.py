@@ -130,7 +130,7 @@ class PlayerWindow(QMainWindow):
         time_layout.addWidget(self.current_time_label)
         
         self.time_slider = ClickableSlider(Qt.Horizontal)
-        self.time_slider.setRange(0, 100)
+        self.time_slider.setRange(0, 1000)
         self.time_slider.sliderPressed.connect(self._on_seek_start)
         self.time_slider.sliderReleased.connect(self._on_seek_release)
         time_layout.addWidget(self.time_slider, 1)
@@ -282,6 +282,8 @@ class PlayerWindow(QMainWindow):
             except Exception as e:
                 self.logger.warning(f'Could not attach VLC end event: {e}')
 
+            self._update_media_info()
+
             # Set volume
             self.vlc_player.audio_set_volume(self.volume)
 
@@ -308,8 +310,11 @@ class PlayerWindow(QMainWindow):
     def _update_media_info(self):
         """Update media information after loading"""
         if self.vlc_player and self.vlc_media:
+            # Parse media to get duration
+            self.vlc_media.parse()
+
             # Get duration in milliseconds
-            duration_ms = self.vlc_player.get_length()
+            duration_ms = self.vlc_media.get_duration()
             if duration_ms > 0:
                 duration_sec = duration_ms / 1000.0
                 self.total_time_label.setText(self._format_time(duration_sec))
@@ -464,7 +469,7 @@ class PlayerWindow(QMainWindow):
             return
 
         value = self.time_slider.value()
-        position = value / 100.0  # VLC uses 0.0 to 1.0
+        position = value / 1000.0  # VLC uses 0.0 to 1.0
 
         self.vlc_player.set_position(position)
         self.seeking = False
@@ -479,7 +484,7 @@ class PlayerWindow(QMainWindow):
         try:
             position = self.vlc_player.get_position()
             if position >= 0:
-                self.time_slider.setValue(int(position * 100))
+                self.time_slider.setValue(int(position * 1000))
         except Exception:
             position = -1
 
@@ -489,6 +494,16 @@ class PlayerWindow(QMainWindow):
             if current_time_ms >= 0:
                 current_seconds = current_time_ms / 1000.0
                 self.current_time_label.setText(self._format_time(current_seconds))
+        except Exception:
+            pass
+
+        # Update total time if not set yet
+        try:
+            if self.total_time_label.text() in ["--:--", "00:00"]:
+                duration_ms = self.vlc_player.get_length()
+                if duration_ms > 0:
+                    duration_sec = duration_ms / 1000.0
+                    self.total_time_label.setText(self._format_time(duration_sec))
         except Exception:
             pass
 
