@@ -144,7 +144,7 @@ class CurrentPlaylistPanel(QWidget):
 
         return None
 
-    def _load_folder(self, path: Optional[str] = None):
+    def _load_folder(self, path: Optional[str] = None, autoplay=True):
         """Load all media files from a selected folder"""
 
         if path:
@@ -175,7 +175,7 @@ class CurrentPlaylistPanel(QWidget):
                     )
 
                 # Auto-play first file
-                if self.playlist_files:
+                if self.playlist_files and autoplay:
                     self.current_index = 0
                     self.file_list.setCurrentRow(0)
                     if self.play_callback:
@@ -184,7 +184,7 @@ class CurrentPlaylistPanel(QWidget):
             except Exception as e:
                 self.logger.error(f'Error loading folder: {e}')
 
-    def _load_m3u(self, path: Optional[str] = None):
+    def _load_m3u(self, path: Optional[str] = None, autoplay=True):
         """Load M3U/M3U8 playlist file"""
 
         if path:
@@ -236,7 +236,7 @@ class CurrentPlaylistPanel(QWidget):
                     self.config_manager.add_recent_playlist(path, auto_save=True)
 
                 # Auto-play first file
-                if self.playlist_files:
+                if self.playlist_files and autoplay:
                     self.current_index = 0
                     self.file_list.setCurrentRow(0)
                     if self.play_callback:
@@ -349,7 +349,7 @@ class CurrentPlaylistPanel(QWidget):
             return self.playlist_files[self.current_index]
         return None
 
-    def restore_playlist(self, playlist_path, index, folder):
+    def restore_playlist(self, playlist_path, index, folder, autoplay=False):
         """
         Restore playlist state from saved config
 
@@ -364,10 +364,14 @@ class CurrentPlaylistPanel(QWidget):
         self._clear_playlist()
 
         # Restore files
-        if playlist_path and os.path.exists(playlist_path):
-            self._load_m3u(playlist_path)
+        if playlist_path and os.path.isfile(playlist_path) and playlist_path.lower().endswith(('.m3u', '.m3u8')):
+            self._load_m3u(playlist_path, autoplay=autoplay)
+        elif playlist_path and os.path.isfile(playlist_path) and not playlist_path.lower().endswith(('.m3u', '.m3u8')):
+            self._load_folder(os.path.dirname(playlist_path), autoplay=autoplay)
         elif folder and os.path.exists(folder):
-            self._load_folder(folder)
+            self._load_folder(folder, autoplay=autoplay)
+        elif playlist_path and os.path.isdir(playlist_path):
+            self._load_folder(playlist_path, autoplay=autoplay)
         else:
             self.logger.info('No valid playlist or folder to restore')
             return

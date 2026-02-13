@@ -223,6 +223,10 @@ class ConfigManager:
         """Get list of default playlists"""
         return self.config.get('default_playlists', [])
 
+    def get_autoplay_on_launch(self):
+        """Get autoplay on launch setting"""
+        return self.config.get('autoplay_on_launch', False)
+
     # Setters
     def set(self, key: str, value: Any, auto_save: bool = False):
         """Set a config value"""
@@ -320,6 +324,12 @@ class ConfigManager:
         self.config['default_playlists'] = playlists
         if auto_save:
             self.save()
+
+    def set_autoplay_on_launch(self, enabled, auto_save=False):
+        """Set autoplay on launch setting"""
+        self.config['autoplay_on_launch'] = enabled
+        if auto_save:
+            self.save_config()
 
     # Recent items management
     def add_recent_file(self, file_path: str, max_count: int = 10, auto_save: bool = True):

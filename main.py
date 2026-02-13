@@ -17,6 +17,7 @@ import sys
 import os
 import logging
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import QTimer
 
 from player_window import PlayerWindow
 from file_window import FileWindow
@@ -94,6 +95,10 @@ class VLCTaggerApp:
         index = self.config_manager.get_current_playlist_index()
         folder = self.config_manager.get_current_folder()
 
+        if playlist_path and not isinstance(playlist_path, str):
+            self.logger.warning(f"Invalid playlist path in config: {playlist_path}")
+            playlist_path = playlist_path[0]
+
         if playlist_path and os.path.exists(playlist_path):
             # Restore saved playlist
             self.file_window.current_playlist_panel.restore_playlist(
@@ -105,8 +110,15 @@ class VLCTaggerApp:
                 None, index, folder
             )
 
-        # Don't auto-play on startup - just restore the state
-        # User can press play if they want to resume
+        current_file = self.config_manager.get_current_file()
+        # last_position = self.config_manager.get_last_position()   # unused for now
+
+        if current_file and os.path.exists(current_file):
+            self.logger.info(f'Restoring previous file: {current_file}')
+
+            # Load the file
+            autoplay = self.player_window.autoplay_on_launch
+            self.player_window.play_file(current_file, autoplay=autoplay)
 
     def run(self):
         """Run the application"""

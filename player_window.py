@@ -66,7 +66,8 @@ class PlayerWindow(QMainWindow):
         self.previous_volume = 100
         self.shuffle_mode = False
         self.seeking = False
-        
+        self.autoplay_on_launch = False
+
         # Load saved volume from config
         if self.config_manager:
             self.volume = self.config_manager.get_volume()
@@ -81,6 +82,9 @@ class PlayerWindow(QMainWindow):
         self.slider_timer = QTimer()
         self.slider_timer.timeout.connect(self._update_time_slider)
         self.slider_timer.start(100)
+
+        if self.config_manager:
+            self.autoplay_on_launch = self.config_manager.get_autoplay_on_launch()
         
         self.logger.debug('PlayerWindow initialized')
     
@@ -230,6 +234,12 @@ class PlayerWindow(QMainWindow):
         next_action.setShortcut('Right')
         next_action.triggered.connect(self.next_track)
         playback_menu.addAction(next_action)
+
+        autoplay_action = QAction('Autoplay on Launch', self)
+        autoplay_action.setCheckable(True)
+        autoplay_action.setChecked(self.autoplay_on_launch)
+        autoplay_action.triggered.connect(self._toggle_autoplay_on_launch)
+        playback_menu.addAction(autoplay_action)
     
     def _open_file(self):
         """Open file dialog to select a media file"""
@@ -242,7 +252,7 @@ class PlayerWindow(QMainWindow):
         if file_path:
             self.play_file(file_path)
     
-    def play_file(self, file_path):
+    def play_file(self, file_path, autoplay=True):
         """Play a specific file"""
         if not VLC_AVAILABLE or not self.vlc_player:
             self.logger.error('VLC player not available')
@@ -275,15 +285,17 @@ class PlayerWindow(QMainWindow):
             # Set volume
             self.vlc_player.audio_set_volume(self.volume)
 
-            # Start playback
-            self.vlc_player.play()
-
-            self.is_playing = True
-            self.is_paused = False
-            self.play_pause_button.setText("⏸ Pause")
-
-            # Wait a bit for media to load and get duration
-            QTimer.singleShot(500, self._update_media_info)
+            # Only start playback if autoplay is True
+            if autoplay:
+                self.vlc_player.play()
+                self.is_playing = True
+                self.is_paused = False
+                self.play_pause_button.setText("⏸ Pause")
+            else:
+                # Load but don't play
+                self.is_playing = False
+                self.is_paused = False
+                self.play_pause_button.setText("▶ Play")
 
             # Notify file window
             if self.file_window_callback:
@@ -414,6 +426,12 @@ class PlayerWindow(QMainWindow):
             self.vlc_player.audio_set_mute(False)
 
         self.logger.info(f'Mute: {self.is_muted}')
+
+    def _toggle_autoplay_on_launch(self):
+        """Toggle autoplay on launch"""
+        self.autoplay_on_launch = not self.autoplay_on_launch
+        if self.config_manager:
+            self.config_manager.set_autoplay_on_launch(self.autoplay_on_launch, auto_save=True)
 
     def _set_volume(self, value):
         """Set volume level"""
