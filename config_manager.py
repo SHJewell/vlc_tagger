@@ -23,7 +23,8 @@ class ConfigManager:
         # Set config directory
         if config_dir is None:
             # Use 'config' directory in the current working directory
-            config_dir = os.path.join(os.getcwd(), 'config')
+            config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
+            # config_dir = os.path.join(os.getcwd(), 'config')
 
         self.config_dir = config_dir
         self.profiles_dir = os.path.join(self.config_dir, 'profiles')

@@ -168,7 +168,7 @@ class CurrentPlaylistPanel(QWidget):
                 # Save to config
                 if self.config_manager:
                     self.config_manager.update_playlist_state(
-                        playlist_path=self.playlist_files,
+                        playlist_path=self.current_folder,
                         index=0 if self.playlist_files else -1,
                         folder=path,
                         auto_save=True
