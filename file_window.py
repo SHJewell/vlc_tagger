@@ -68,13 +68,9 @@ class FileWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu('File')
 
-        load_folder_action = QAction('Load Folder...', self)
-        load_folder_action.triggered.connect(self.current_playlist_panel._load_folder)
-        file_menu.addAction(load_folder_action)
-
-        load_m3u_action = QAction('Load M3U Playlist...', self)
-        load_m3u_action.triggered.connect(self.current_playlist_panel._load_m3u)
-        file_menu.addAction(load_m3u_action)
+        load_playlist_action = QAction('Load Playlist/Folder...', self)
+        load_playlist_action.triggered.connect(self.current_playlist_panel._load_current_playlist)
+        file_menu.addAction(load_playlist_action)
 
         file_menu.addSeparator()
 

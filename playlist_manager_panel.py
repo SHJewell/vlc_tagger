@@ -1,13 +1,16 @@
 """
 Playlist Manager Panel - Shows available playlists and allows adding/removing current track
 """
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget, QMenu,
                              QLabel, QFileDialog, QListWidgetItem, QMessageBox, QInputDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 import os
 import logging
+from pathlib import Path
 
+# local imports
+import current_playlist_panel
 
 class PlaylistManagerPanel(QWidget):
     """Panel for managing multiple M3U playlists"""
@@ -46,6 +49,8 @@ class PlaylistManagerPanel(QWidget):
 
         self.playlist_list = QListWidget()
         self.playlist_list.itemClicked.connect(self._on_playlist_clicked)
+        self.playlist_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.playlist_list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.playlist_list)
 
         self.new_playlist_button = QPushButton("➕ Create New Playlist")
@@ -61,7 +66,8 @@ class PlaylistManagerPanel(QWidget):
         saved_dir = self.config_manager.get_playlist_directory()
         if saved_dir and os.path.isdir(saved_dir):
             self.playlist_dir = saved_dir
-            self.dir_label.setText(f"Directory: {saved_dir}")
+            self.dir_label.setText(f"Directory: {os.path.basename(saved_dir)}")
+            self.dir_label.setToolTip(f"<b>{saved_dir}</b>")
             self.new_playlist_button.setEnabled(True)
             self._load_playlists()
 
@@ -71,7 +77,8 @@ class PlaylistManagerPanel(QWidget):
 
         if dir_path:
             self.playlist_dir = dir_path
-            self.dir_label.setText(f"Directory: {dir_path}")
+            self.dir_label.setText(f"Directory: {os.path.basename(dir_path)}")
+            self.dir_label.setToolTip(f"<b>{dir_path}</b>")
             self.new_playlist_button.setEnabled(True)
 
             # Save to config
@@ -133,6 +140,34 @@ class PlaylistManagerPanel(QWidget):
             self.logger.error(f'Error parsing M3U file {file_path}: {e}')
 
         return files
+
+    def _show_context_menu(self, position):
+        """Show context menu for playlist items"""
+        item = self.playlist_list.itemAt(position)
+
+        if not item:
+            return
+
+        menu = QMenu(self)
+        load_action = menu.addAction("Load Playlist")
+
+        action = menu.exec_(self.playlist_list.mapToGlobal(position))
+
+        if action == load_action:
+            self._load_playlist_as_current(item)
+
+    def _load_playlist_as_current(self, item):
+        """Load the selected playlist into the main player"""
+        playlist_path = item.data(Qt.UserRole)
+        playlist_path = Path(playlist_path).resolve()
+
+        # Find an instance of the current playlist panel on the parent (adjust as needed)
+        panel = getattr(self.parent(), 'current_playlist_panel', None) or getattr(self, 'current_playlist_panel', None)
+        if panel and hasattr(panel, '_load_m3u_file'):
+            panel._load_m3u_file(playlist_path, autoplay=True)
+        else:
+            # Fallback: log the problem so it doesn't crash
+            self.logger.error(f'Could not find CurrentPlaylistPanel instance to load {playlist_path}')
 
     def _save_m3u_file(self, playlist_path, files):
         """Save playlist to M3U file"""

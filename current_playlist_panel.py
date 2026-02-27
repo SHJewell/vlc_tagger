@@ -96,13 +96,9 @@ class CurrentPlaylistPanel(QWidget):
         # Load buttons
         button_layout = QVBoxLayout()
 
-        self.load_folder_button = QPushButton("📁 Load Folder")
+        self.load_folder_button = QPushButton("📁 Load Playlist/Folder")
         self.load_folder_button.clicked.connect(self._load_current_playlist)
         button_layout.addWidget(self.load_folder_button)
-
-        # self.load_m3u_button = QPushButton("📄 Load M3U Playlist")
-        # self.load_m3u_button.clicked.connect(self._load_m3u)
-        # button_layout.addWidget(self.load_m3u_button)
 
         layout.addLayout(button_layout)
 
@@ -115,16 +111,12 @@ class CurrentPlaylistPanel(QWidget):
         # File list
         self.file_list = QListWidget()
         self.file_list.itemDoubleClicked.connect(self._on_file_double_clicked)
+        # Enable tooltips on hover
+        self.file_list.setMouseTracking(True)
         layout.addWidget(self.file_list)
 
     def _load_current_playlist(self):
         """Load either a folder or M3U playlist"""
-        # dialog = QFileDialog(self, "Select Folder or M3U Playlist")
-        # dialog.setFileMode(QFileDialog.AnyFile)
-        # dialog.setOption(QFileDialog.DontConfirmOverwrite)
-        #
-        # # Allow both files and directories
-        # dialog.setNameFilters(["M3U Playlists (*.m3u *.m3u8)", "All Files (*)"])
 
         file = getOpenFilesAndDirs(
             parent=self,
@@ -160,7 +152,9 @@ class CurrentPlaylistPanel(QWidget):
                     if file.lower().endswith(MEDIA_EXTENSIONS):
                         full_path = os.path.join(path, file)
                         self.playlist_files.append(full_path)
-                        self.file_list.addItem(file)
+                        item = self.file_list.addItem(file)
+                        # Set tooltip to show full path
+                        self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(full_path))
 
                 self.playlist_name_label.setText(f"Folder: {os.path.basename(path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from folder')
@@ -220,6 +214,8 @@ class CurrentPlaylistPanel(QWidget):
 
                         self.playlist_files.append(file_url)
                         self.file_list.addItem(display_name)
+                        # Set tooltip to show full path/URL
+                        self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_url))
                         current_title = None
 
                 self.playlist_name_label.setText(f"Playlist: {os.path.basename(path)}")
@@ -384,6 +380,8 @@ class CurrentPlaylistPanel(QWidget):
         for file_path in self.playlist_files:
             display_name = os.path.basename(file_path)
             self.file_list.addItem(display_name)
+            # Set tooltip to show full path
+            self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_path))
 
         # Set current selection
         if 0 <= self.current_index < len(self.playlist_files):
@@ -391,11 +389,14 @@ class CurrentPlaylistPanel(QWidget):
 
         # Update label
         if folder:
-            self.playlist_name_label.setText(f"Folder: {os.path.basename(folder)}")
+            self.playlist_name_label.setText(f"{os.path.basename(folder)} - {len(self.playlist_files)} files")
+            self.playlist_name_label.setToolTip(f"<b>{folder}</b>")
         elif self.playlist_files:
-            self.playlist_name_label.setText(f"Playlist: {len(self.playlist_files)} files")
+            self.playlist_name_label.setText(f"{os.path.basename(playlist_path)} - {len(self.playlist_files)} files")
+            self.playlist_name_label.setToolTip(f"<b>{playlist_path}</b>")
         else:
             self.playlist_name_label.setText("No playlist loaded")
+            self.playlist_name_label.setToolTip("")
 
         self.logger.info(f'Playlist restored with index {self.current_index}')
 
