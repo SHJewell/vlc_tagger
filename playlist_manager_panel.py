@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 
 # local imports
-import current_playlist_panel
+import app_registry
 
 class PlaylistManagerPanel(QWidget):
     """Panel for managing multiple M3U playlists"""
@@ -161,13 +161,14 @@ class PlaylistManagerPanel(QWidget):
         playlist_path = item.data(Qt.UserRole)
         playlist_path = Path(playlist_path).resolve()
 
-        # Find an instance of the current playlist panel on the parent (adjust as needed)
-        panel = getattr(self.parent(), 'current_playlist_panel', None) or getattr(self, 'current_playlist_panel', None)
-        if panel and hasattr(panel, '_load_m3u_file'):
-            panel._load_m3u_file(playlist_path, autoplay=True)
-        else:
-            # Fallback: log the problem so it doesn't crash
+        self.logger.info(f'Switching playlist {playlist_path} into main player')
+        current_playlist_panel = app_registry.get("current_playlist_panel")
+
+        try:
+            current_playlist_panel._load_m3u(playlist_path)
+        except Exception as e:
             self.logger.error(f'Could not find CurrentPlaylistPanel instance to load {playlist_path}')
+            self.logger.error(f'Error loading playlist into main player: {e}')
 
     def _save_m3u_file(self, playlist_path, files):
         """Save playlist to M3U file"""

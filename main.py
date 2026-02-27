@@ -23,6 +23,14 @@ from player_window import PlayerWindow
 from file_window import FileWindow
 from config_manager import ConfigManager
 
+# Module-level reference to the running app instance
+import app_registry
+_app_instance = None
+
+
+def get_app():
+    """Get the running VLCTaggerApp instance"""
+    return _app_instance
 
 def setup_logging():
     """Setup application logging"""
@@ -40,8 +48,15 @@ class VLCTaggerApp:
     """Main application class"""
 
     def __init__(self):
+        global _app_instance
+        _app_instance = self
+
         self.logger = logging.getLogger(__name__)
         self.logger.info('Starting VLC Tagger application')
+
+        # Central component registry — keyed by component name
+        # Only one instance of each is allowed at a time
+        self._components: dict = {}
 
         # Initialize config manager
         self.config_manager = ConfigManager()
@@ -54,6 +69,12 @@ class VLCTaggerApp:
             file_window_callback=self.file_window.handle_player_event,
             config_manager=self.config_manager
         )
+
+        app_registry.register('config_manager', self.config_manager)
+        app_registry.register('file_window', self.file_window)
+        app_registry.register('player_window', self.player_window)
+        app_registry.register('current_playlist_panel', self.file_window.current_playlist_panel)
+        app_registry.register('playlist_manager_panel', self.file_window.playlist_manager_panel)
 
         # Link windows together
         self.file_window.player_window = self.player_window

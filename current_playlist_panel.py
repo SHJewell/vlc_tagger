@@ -12,6 +12,8 @@ import random
 
 from typing import Optional, Dict, Any, List
 
+# local imports
+import app_registry
 # Media file extensions
 MEDIA_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
                     '.mp3', '.wav', '.flac', '.ogg', '.m4a')
