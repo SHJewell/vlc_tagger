@@ -132,7 +132,7 @@ class PlaylistManagerPanel(QWidget):
 
                 if not (file_url.startswith('http') or file_url.startswith('https') or os.path.isabs(file_url)):
                     file_url = os.path.join(playlist_dir, file_url)
-                    file_url = os.path.normpath(file_url)
+                    file_url = os.path.normcase(os.path.normpath(file_url))
 
                 files.append(file_url)
 
@@ -173,7 +173,7 @@ class PlaylistManagerPanel(QWidget):
     def _save_m3u_file(self, playlist_path, files):
         """Save playlist to M3U file"""
         try:
-            playlist_dir = os.path.dirname(playlist_path)
+            self.logger.debug(f'Saving playlist to {playlist_path}')
 
             with open(playlist_path, 'w', encoding='utf-8') as f:
                 f.write("#EXTM3U\n")
@@ -182,14 +182,7 @@ class PlaylistManagerPanel(QWidget):
                     filename = os.path.basename(file_path)
                     f.write(f"#EXTINF:-1,{filename}\n")
 
-                    try:
-                        rel_path = os.path.relpath(file_path, playlist_dir)
-                        if not rel_path.startswith('..\\..\\..'):
-                            f.write(f"{rel_path}\n")
-                        else:
-                            f.write(f"{file_path}\n")
-                    except ValueError:
-                        f.write(f"{file_path}\n")
+                    f.write(f"{file_path}\n")
 
             return True
 
@@ -207,12 +200,14 @@ class PlaylistManagerPanel(QWidget):
         playlist_path = item.data(Qt.UserRole)
         files = self.playlists.get(playlist_path, [])
 
-        if self.current_track in files:
-            files.remove(self.current_track)
+        normalized_track = os.path.normcase(os.path.normpath(self.current_track))
+
+        if normalized_track in files:
+            files.remove(normalized_track)
             self.playlists[playlist_path] = files
             self._save_m3u_file(playlist_path, files)
         else:
-            files.append(self.current_track)
+            files.append(normalized_track)
             self.playlists[playlist_path] = files
             self._save_m3u_file(playlist_path, files)
 
@@ -247,7 +242,7 @@ class PlaylistManagerPanel(QWidget):
 
     def set_current_track(self, file_path):
         """Update the current track and highlight playlists containing it"""
-        self.current_track = file_path
+        self.current_track = os.path.normcase(os.path.normpath(file_path)) if file_path else None
         self._update_highlighting()
 
     def _update_highlighting(self):

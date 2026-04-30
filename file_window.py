@@ -9,6 +9,8 @@ import logging
 from current_playlist_panel import CurrentPlaylistPanel
 from playlist_manager_panel import PlaylistManagerPanel
 
+import app_registry
+
 
 class FileWindow(QMainWindow):
     """File window for managing playlists and viewing current playlist"""
@@ -20,7 +22,11 @@ class FileWindow(QMainWindow):
         self.logger.debug('Initializing FileWindow')
 
         self.player_window = player_window
+
         self.config_manager = config_manager
+
+        if config_manager is None:
+            self.config_manager = app_registry.get('config_manager')
 
         self.setWindowTitle("Playlist Manager")
         self.setGeometry(920, 100, 600, 800)
@@ -92,6 +98,20 @@ class FileWindow(QMainWindow):
             self.playlist_manager_panel._create_new_playlist
         )
         playlist_menu.addAction(new_playlist_action)
+
+        config_menu = menubar.addMenu('Config')
+
+        new_config_action = QAction('New Config', self)
+        new_config_action.triggered.connect(self.config_manager.create_new)
+        config_menu.addAction(new_config_action)
+
+        save_config_action = QAction('Save Config', self)
+        save_config_action.triggered.connect(self.config_manager.save)
+        config_menu.addAction(save_config_action)
+
+        load_config_action = QAction('Load Config', self)
+        load_config_action.triggered.connect(self.config_manager.load_profile)
+        config_menu.addAction(load_config_action)
 
     def _on_play_file(self, file_path):
         """Called when a file should be played"""
