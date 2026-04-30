@@ -130,8 +130,9 @@ class PlaylistManagerPanel(QWidget):
 
                 file_url = line
 
-                if not (file_url.startswith('http') or file_url.startswith('https') or os.path.isabs(file_url)):
-                    file_url = os.path.join(playlist_dir, file_url)
+                if not (file_url.startswith('http') or file_url.startswith('https')):
+                    if not os.path.isabs(file_url):
+                        file_url = os.path.join(playlist_dir, file_url)
                     file_url = os.path.normcase(os.path.normpath(file_url))
 
                 files.append(file_url)
