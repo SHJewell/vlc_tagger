@@ -70,6 +70,15 @@ class PlaylistManagerPanel(QWidget):
             self.dir_label.setToolTip(f"<b>{saved_dir}</b>")
             self.new_playlist_button.setEnabled(True)
             self._load_playlists()
+        else:
+            # No (valid) directory in this profile — reset the panel so a
+            # profile switch doesn't leave the previous profile's playlists
+            self.playlist_dir = None
+            self.playlists.clear()
+            self.playlist_list.clear()
+            self.dir_label.setText("No directory selected")
+            self.dir_label.setToolTip("")
+            self.new_playlist_button.setEnabled(False)
 
     def _select_playlist_directory(self):
         """Open dialog to select directory containing playlists"""

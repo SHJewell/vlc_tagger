@@ -3,23 +3,26 @@ Config Manager - Handles loading and saving application configuration
 """
 import json
 import os
+import re
 import logging
+from contextlib import contextmanager
 from typing import Optional, Dict, Any, List
-
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QInputDialog, QMessageBox,
-                             QListWidget, QListWidgetItem)
 
 
 class ConfigManager:
-    """Manages application configuration and persistence"""
+    """Manages application configuration and persistence.
 
-    def __init__(self, config_dir: str = None, profile_name: str = "default"):
+    Persistence only — no UI. Profile dialogs live in file_window.py.
+    """
+
+    def __init__(self, config_dir: str = None, profile_name: str = None):
         """
         Initialize the config manager
 
         Args:
             config_dir: Directory to store config files. Defaults to ./config
-            profile_name: Name of the profile to use (e.g., 'default', 'music')
+            profile_name: Name of the profile to use. Defaults to the last
+                profile used (stored in config/settings.json), or 'default'.
         """
         self.logger = logging.getLogger(__name__)
 
@@ -31,6 +34,19 @@ class ConfigManager:
 
         self.config_dir = config_dir
         self.profiles_dir = os.path.join(self.config_dir, 'profiles')
+        self.settings_file = os.path.join(self.config_dir, 'settings.json')
+
+        # While a profile is being applied to the UI, setters fire with
+        # transient state; suppress saves so they can't overwrite the profile
+        self._suppress_save = False
+
+        # App-level settings (which profile was last active, etc.) —
+        # kept outside the profiles so they survive profile switches
+        self.settings = self._load_settings()
+
+        if profile_name is None:
+            profile_name = self.settings.get('last_profile') or 'default'
+
         self.profile_name = profile_name
         self.config_file = os.path.join(self.profiles_dir, f'{profile_name}.json')
 
@@ -43,7 +59,51 @@ class ConfigManager:
         # Load existing config
         self.load()
 
+        self._set_last_profile(profile_name)
+
         self.logger.info(f'Config manager initialized with profile: {profile_name}')
+
+    # App-level settings (not per-profile)
+    def _load_settings(self) -> Dict[str, Any]:
+        """Load app-level settings from config/settings.json"""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.logger.error(f'Failed to load settings: {e}')
+        return {}
+
+    def _save_settings(self):
+        """Save app-level settings to config/settings.json"""
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, indent=4)
+        except Exception as e:
+            self.logger.error(f'Failed to save settings: {e}')
+
+    def _set_last_profile(self, profile_name: str):
+        """Record the active profile so the next launch reopens it"""
+        self.settings['last_profile'] = profile_name
+        self._save_settings()
+
+    @contextmanager
+    def applying(self):
+        """Suppress auto-saves while a profile is applied to the UI"""
+        self._suppress_save = True
+        try:
+            yield
+        finally:
+            self._suppress_save = False
+
+    @staticmethod
+    def sanitize_profile_name(name: str) -> Optional[str]:
+        """Clean a profile name for use as a filename; None if unusable"""
+        if not name:
+            return None
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name).strip().rstrip('.')
+        return name or None
 
     def _ensure_directories(self):
         """Ensure config directories exist"""
@@ -114,77 +174,23 @@ class ConfigManager:
             # Merge loaded config with defaults (to handle new keys)
             self.config = self._merge_configs(self.config, loaded_config)
 
+            # Migrate old profiles where a full track list was stored in
+            # current_playlist_path (must be a single path string or None);
+            # current_folder still allows the playlist itself to be restored
+            playlist_path = self.config.get('current_playlist_path')
+            if playlist_path is not None and not isinstance(playlist_path, str):
+                self.logger.warning(
+                    'current_playlist_path held a track list; discarding it '
+                    '(will be rewritten as a path on next save)'
+                )
+                self.config['current_playlist_path'] = None
+
             self.logger.info(f'Config loaded from: {self.config_file}')
             return True
 
         except Exception as e:
             self.logger.error(f'Failed to load config: {e}')
             return False
-
-    def load_profile(self) -> Optional[str]:
-        """
-        Show a dialog to let the user select and load an existing configuration profile.
-
-        Returns:
-            The profile name if loaded, None if cancelled.
-        """
-
-        profiles = self.list_profiles()
-
-        if not profiles:
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(None, "No Profiles", "No configuration profiles found.")
-            return None
-
-        dialog = QDialog()
-        dialog.setWindowTitle("Load Configuration")
-        dialog.setFixedSize(300, 250)
-
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Select a configuration profile to load:"))
-
-        profile_list = QListWidget()
-        for profile in profiles:
-            item = QListWidgetItem(profile)
-            profile_list.addItem(item)
-            # Pre-select the current profile
-            if profile == self.profile_name:
-                profile_list.setCurrentItem(item)
-
-        layout.addWidget(profile_list)
-
-        btn_layout = QHBoxLayout()
-        load_btn = QPushButton("Load")
-        cancel_btn = QPushButton("Cancel")
-        btn_layout.addWidget(load_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-        # Enable load button only when a profile is selected
-        load_btn.setEnabled(profile_list.currentItem() is not None)
-        profile_list.currentItemChanged.connect(
-            lambda current, _: load_btn.setEnabled(current is not None)
-        )
-
-        # Allow double-click to load
-        profile_list.itemDoubleClicked.connect(lambda _: load_btn.click())
-
-        load_btn.clicked.connect(dialog.accept)
-        cancel_btn.clicked.connect(dialog.reject)
-
-        if dialog.exec_() != QDialog.Accepted:
-            return None
-
-        selected = profile_list.currentItem()
-        if not selected:
-            return None
-
-        profile_name = selected.text()
-        self.save()  # Save current profile before switching
-        self.switch_profile(profile_name)
-
-        self.logger.info(f"Loaded configuration profile: '{profile_name}'")
-        return profile_name
 
     def save(self) -> bool:
         """
@@ -193,6 +199,10 @@ class ConfigManager:
         Returns:
             True if saved successfully, False otherwise
         """
+        if self._suppress_save:
+            self.logger.debug('Save suppressed (profile being applied)')
+            return False
+
         self._ensure_directories()
 
         try:
@@ -218,58 +228,24 @@ class ConfigManager:
         self.logger.info(f'Config saved to: {self.config_file}')
         return True
 
-    def create_new(self):
+    def create_profile(self, profile_name: str, keep_files: bool = False) -> bool:
         """
-        Create a new configuration profile via a PyQt5 dialog.
-        Returns the new profile name if created, None if cancelled.
+        Create a new profile and make it active. If a profile with this name
+        already exists it is overwritten with a fresh config (the caller is
+        responsible for confirming that with the user).
+
+        Args:
+            profile_name: Name for the new profile (already sanitized)
+            keep_files: Carry the current profile's file/folder settings over
+
+        Returns:
+            True if created, False on invalid name
         """
+        profile_name = self.sanitize_profile_name(profile_name)
+        if not profile_name:
+            return False
 
-        # Ask for profile name
-        profile_name, ok = QInputDialog.getText(
-            None, "New Configuration", "Enter a name for the new configuration profile:"
-        )
-        if not ok or not profile_name.strip():
-            return None
-
-        profile_name = profile_name.strip()
-
-        # Check if profile already exists
-        if profile_name in self.list_profiles():
-            reply = QMessageBox.question(
-                None, "Profile Exists",
-                f"A profile named '{profile_name}' already exists. Overwrite it?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply != QMessageBox.Yes:
-                return None
-
-        # Dialog: keep or clear files/folders
-        dialog = QDialog()
-        dialog.setWindowTitle("New Configuration")
-        dialog.setFixedSize(400, 130)
-
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Would you like to keep the current files and folders\nin the new configuration?"))
-
-        btn_layout = QHBoxLayout()
-        keep_btn = QPushButton("Keep Files && Folders")
-        clear_btn = QPushButton("Clear All")
-        cancel_btn = QPushButton("Cancel")
-        btn_layout.addWidget(keep_btn)
-        btn_layout.addWidget(clear_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-        result = {"choice": None}
-
-        keep_btn.clicked.connect(lambda: result.update(choice="keep") or dialog.accept())
-        clear_btn.clicked.connect(lambda: result.update(choice="clear") or dialog.accept())
-        cancel_btn.clicked.connect(dialog.reject)
-
-        if dialog.exec_() != QDialog.Accepted or result["choice"] is None:
-            return None
-
-        # Capture file/folder values before switching
+        # Fields carried over when keep_files is set
         fields_to_keep = [
             'current_file', 'current_folder', 'current_playlist_path',
             'default_save_folder', 'default_load_folder', 'playlist_directory',
@@ -277,17 +253,24 @@ class ConfigManager:
         ]
         saved_values = {field: self.config.get(field) for field in fields_to_keep}
 
+        # Save the outgoing profile, then start the new one from defaults —
+        # deliberately NOT switch_profile(), which would load an existing
+        # file of the same name instead of overwriting it
         self.save()
-        self.switch_profile(profile_name)
+        self.profile_name = profile_name
+        self.config_file = os.path.join(self.profiles_dir, f'{profile_name}.json')
+        self.config = self._get_default_config()
 
-        if result["choice"] == "keep":
+        if keep_files:
             for field, value in saved_values.items():
                 if value is not None:
                     self.config[field] = value
-            self.save()
 
-        self.logger.info(f"New configuration '{profile_name}' created (choice: {result['choice']})")
-        return profile_name
+        self.save()
+        self._set_last_profile(profile_name)
+
+        self.logger.info(f"New profile '{profile_name}' created (keep_files={keep_files})")
+        return True
 
     def _merge_configs(self, default: Dict, loaded: Dict) -> Dict:
         """
@@ -481,7 +464,7 @@ class ConfigManager:
         """Set autoplay on launch setting"""
         self.config['autoplay_on_launch'] = enabled
         if auto_save:
-            self.save_config()
+            self.save()
 
     # Recent items management
     def add_recent_file(self, file_path: str, max_count: int = 10, auto_save: bool = True):
@@ -595,6 +578,10 @@ class ConfigManager:
         Returns:
             True if switched successfully, False otherwise
         """
+        profile_name = self.sanitize_profile_name(profile_name)
+        if not profile_name:
+            return False
+
         old_profile = self.profile_name
         self.profile_name = profile_name
         self.config_file = os.path.join(self.profiles_dir, f'{profile_name}.json')
@@ -605,11 +592,12 @@ class ConfigManager:
         # Try to load the profile
         if self.load():
             self.logger.info(f'Switched from profile "{old_profile}" to "{profile_name}"')
-            return True
         else:
             self.logger.info(f'Created new profile: {profile_name}')
             self.save()  # Save the default config for the new profile
-            return True
+
+        self._set_last_profile(profile_name)
+        return True
 
     def list_profiles(self) -> List[str]:
         """

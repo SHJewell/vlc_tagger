@@ -73,6 +73,7 @@ class VLCTaggerApp:
             config_manager=self.config_manager
         )
 
+        app_registry.register('app', self)
         app_registry.register('config_manager', self.config_manager)
         app_registry.register('file_window', self.file_window)
         app_registry.register('player_window', self.player_window)
@@ -119,10 +120,6 @@ class VLCTaggerApp:
         index = self.config_manager.get_current_playlist_index()
         folder = self.config_manager.get_current_folder()
 
-        if playlist_path and not isinstance(playlist_path, str):
-            self.logger.warning(f"Invalid playlist path in config: {playlist_path}")
-            playlist_path = playlist_path[0]
-
         if playlist_path and os.path.exists(playlist_path):
             # Restore saved playlist
             self.file_window.current_playlist_panel.restore_playlist(
@@ -143,6 +140,26 @@ class VLCTaggerApp:
             # Load the file
             autoplay = self.player_window.autoplay_on_launch
             self.player_window.play_file(current_file, autoplay=autoplay)
+
+    def apply_profile(self):
+        """Re-apply the active config profile to every window and panel.
+
+        Called after a profile switch. Saves are suppressed while applying so
+        the transient UI churn can't overwrite the freshly loaded profile.
+        """
+        self.logger.info(f'Applying profile: {self.config_manager.profile_name}')
+
+        with self.config_manager.applying():
+            # Player settings first (also stops playback)
+            self.player_window.reload_from_config()
+
+            # Playlist manager (playlist directory)
+            self.file_window.playlist_manager_panel._load_from_config()
+
+            # Window geometry, then playlist/current file (may start playback
+            # depending on the profile's autoplay setting)
+            self._restore_window_positions()
+            self._restore_previous_state()
 
     def run(self):
         """Run the application"""

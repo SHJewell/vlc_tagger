@@ -161,10 +161,12 @@ class CurrentPlaylistPanel(QWidget):
                 self.playlist_name_label.setText(f"Folder: {os.path.basename(path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from folder')
 
-                # Save to config
+                # Save to config — a folder load has no playlist file, so
+                # explicitly clear any stale path (update_playlist_state
+                # skips None values)
                 if self.config_manager:
+                    self.config_manager.set_current_playlist_path(None, auto_save=False)
                     self.config_manager.update_playlist_state(
-                        playlist_path=self.current_folder,
                         index=0 if self.playlist_files else -1,
                         folder=path,
                         auto_save=True
@@ -225,8 +227,9 @@ class CurrentPlaylistPanel(QWidget):
 
                 # Save to config
                 if self.config_manager:
+                    # Store the .m3u path itself, never the expanded track list
                     self.config_manager.update_playlist_state(
-                        playlist_path=self.playlist_files,
+                        playlist_path=path,
                         index=0 if self.playlist_files else -1,
                         folder=playlist_dir,
                         auto_save=True
@@ -252,14 +255,12 @@ class CurrentPlaylistPanel(QWidget):
         self.current_folder = None
         self.playlist_name_label.setText("No playlist loaded")
 
-        # Save cleared state to config
+        # Save cleared state to config (setters, not update_playlist_state,
+        # because the latter skips None values)
         if self.config_manager:
-            self.config_manager.update_playlist_state(
-                playlist_path=None,
-                index=-1,
-                folder=None,
-                auto_save=True
-            )
+            self.config_manager.set_current_playlist_path(None, auto_save=False)
+            self.config_manager.set_current_folder(None, auto_save=False)
+            self.config_manager.set_current_playlist_index(-1, auto_save=True)
 
     def _on_file_double_clicked(self, item):
         """Handle double-click on a file"""
@@ -374,16 +375,10 @@ class CurrentPlaylistPanel(QWidget):
             self.logger.info('No valid playlist or folder to restore')
             return
 
-        self.playlist_files = self.playlist_files.copy()
+        # _load_m3u/_load_folder already populated file_list and
+        # playlist_files; only the index and folder need restoring here
         self.current_index = index if 0 <= index < len(self.playlist_files) else -1
         self.current_folder = folder
-
-        # Populate the file list
-        for file_path in self.playlist_files:
-            display_name = os.path.basename(file_path)
-            self.file_list.addItem(display_name)
-            # Set tooltip to show full path
-            self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_path))
 
         # Set current selection
         if 0 <= self.current_index < len(self.playlist_files):

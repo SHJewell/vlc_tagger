@@ -270,11 +270,11 @@ class PlayerWindow(QMainWindow):
         next_action.triggered.connect(self.next_track)
         playback_menu.addAction(next_action)
 
-        autoplay_action = QAction('Autoplay on Launch', self)
-        autoplay_action.setCheckable(True)
-        autoplay_action.setChecked(self.autoplay_on_launch)
-        autoplay_action.triggered.connect(self._toggle_autoplay_on_launch)
-        playback_menu.addAction(autoplay_action)
+        self.autoplay_action = QAction('Autoplay on Launch', self)
+        self.autoplay_action.setCheckable(True)
+        self.autoplay_action.setChecked(self.autoplay_on_launch)
+        self.autoplay_action.triggered.connect(self._toggle_autoplay_on_launch)
+        playback_menu.addAction(self.autoplay_action)
     
     def _open_file(self):
         """Open file dialog to select a media file"""
@@ -503,6 +503,31 @@ class PlayerWindow(QMainWindow):
             self.config_manager.set_volume(self.volume, auto_save=True)
 
         self.logger.debug(f'Volume set to: {self.volume}')
+
+    def reload_from_config(self):
+        """Re-apply settings after a profile switch.
+
+        Stops playback and syncs volume/shuffle/autoplay to the new profile.
+        The caller (VLCTaggerApp.apply_profile) restores the playlist and
+        current file afterwards, inside config_manager.applying().
+        """
+        if not self.config_manager:
+            return
+
+        self.stop()
+
+        self.volume = self.config_manager.get_volume()
+        self.volume_slider.setValue(self.volume)
+
+        self.shuffle_mode = self.config_manager.get_shuffle_mode()
+        self.shuffle_button.setChecked(self.shuffle_mode)
+        if self.file_window_callback:
+            self.file_window_callback('shuffle', self.shuffle_mode)
+
+        self.autoplay_on_launch = self.config_manager.get_autoplay_on_launch()
+        self.autoplay_action.setChecked(self.autoplay_on_launch)
+
+        self.logger.info('Player settings reloaded from config')
 
     def _on_seek_start(self):
         """Called when user starts seeking"""
