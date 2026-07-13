@@ -3,7 +3,7 @@ Player Window - Displays video/audio player with controls
 """
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QSlider, QLabel, QAction, QFileDialog)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 import logging
 import platform
 
@@ -39,7 +39,10 @@ class ClickableSlider(QSlider):
 
 class PlayerWindow(QMainWindow):
     """Player window with video/audio display and playback controls"""
-    
+
+    # Emitted from the libVLC event thread; queued to the Qt main thread
+    media_ended = pyqtSignal()
+
     def __init__(self, file_window_callback=None, config_manager=None):
         super().__init__()
         
@@ -77,7 +80,12 @@ class PlayerWindow(QMainWindow):
         self.setGeometry(100, 100, 800, 700)
         
         self._setup_ui()
-        
+
+        # End-of-media is signalled from the libVLC event thread; force a
+        # queued connection so _handle_media_end always runs on the Qt main
+        # thread (calling into libVLC from its own event thread deadlocks)
+        self.media_ended.connect(self._handle_media_end, Qt.QueuedConnection)
+
         # Timer for updating time slider
         self.slider_timer = QTimer()
         self.slider_timer.timeout.connect(self._update_time_slider)
@@ -322,10 +330,13 @@ class PlayerWindow(QMainWindow):
                 self.total_time_label.setText("--:--")
 
     def _on_media_end(self, event):
-        """Called when media playback ends"""
+        """Called by libVLC on its event thread when media playback ends.
+
+        Must not touch Qt widgets or call back into libVLC here — only emit
+        the signal, which is queued to the main thread.
+        """
         self.logger.info('Media playback ended')
-        # Ensure GUI/thread-safety by calling next_track on the Qt main thread
-        QTimer.singleShot(0, lambda: self._handle_media_end())
+        self.media_ended.emit()
 
     def _handle_media_end(self):
         """Handle end-of-media actions on the Qt thread"""
