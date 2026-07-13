@@ -4,6 +4,7 @@ Player Window - Displays video/audio player with controls
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QSlider, QLabel, QAction, QFileDialog)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+import ctypes
 import logging
 import platform
 
@@ -15,6 +16,28 @@ except ImportError:
     VLC_AVAILABLE = False
     vlc = None
     print("Warning: python-vlc not available. Media playback will be disabled.")
+
+
+if VLC_AVAILABLE:
+    # Module-level so the ctypes callback is never garbage-collected while
+    # libVLC still holds a pointer to it
+    @vlc.CallbackDecorators.LogCb
+    def _vlc_log_cb(data, level, ctx, fmt, args):
+        """Route libVLC's log stream into Python logging.
+
+        libVLC normally writes straight to stderr, bypassing logging entirely.
+        Levels: 0=debug, 2=notice, 3=warning, 4=error.
+        """
+        if level < 3:  # skip debug/notice noise
+            return
+        try:
+            buf = ctypes.create_string_buffer(1024)
+            ctypes.cdll.msvcrt.vsnprintf(buf, len(buf), fmt, ctypes.cast(args, ctypes.c_void_p))
+            msg = buf.value.decode('utf-8', errors='replace')
+        except Exception:
+            msg = '<unformattable libVLC message>'
+        logging.getLogger('libvlc').log(
+            {3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG), msg)
 
 
 class ClickableSlider(QSlider):
@@ -70,6 +93,9 @@ class PlayerWindow(QMainWindow):
         self.shuffle_mode = False
         self.seeking = False
         self.autoplay_on_launch = False
+        # One-shot guard: end-of-media can be reported by both the libVLC
+        # event and the slider-timer fallback; only the first may act
+        self._end_handled = False
 
         # Load saved volume from config
         if self.config_manager:
@@ -105,6 +131,7 @@ class PlayerWindow(QMainWindow):
         if VLC_AVAILABLE:
             try:
                 self.vlc_instance = vlc.Instance('--no-xlib')
+                self.vlc_instance.log_set(_vlc_log_cb, None)
                 self.vlc_player = self.vlc_instance.media_player_new()
                 self.logger.info('VLC player initialized')
             except Exception as e:
@@ -282,6 +309,9 @@ class PlayerWindow(QMainWindow):
             self.vlc_media = self.vlc_instance.media_new(file_path)
             self.vlc_player.set_media(self.vlc_media)
 
+            # Re-arm the end-of-media guard for the new track
+            self._end_handled = False
+
             # Attach end-of-media event (store manager to detach later)
             try:
                 self._vlc_event_manager = self.vlc_player.event_manager()
@@ -340,6 +370,10 @@ class PlayerWindow(QMainWindow):
 
     def _handle_media_end(self):
         """Handle end-of-media actions on the Qt thread"""
+        if self._end_handled:
+            return
+        self._end_handled = True
+
         self.is_playing = False
         self.play_pause_button.setText("▶ Play")
 
@@ -520,9 +554,9 @@ class PlayerWindow(QMainWindow):
 
         # Fallback: check VLC player state for Ended
         try:
-            if VLC_AVAILABLE and self.vlc_player and self.vlc_player.get_state() == vlc.State.Ended:
-                # Ensure we only handle it once
-                QTimer.singleShot(0, lambda: self._handle_media_end())
+            if (not self._end_handled and VLC_AVAILABLE and self.vlc_player
+                    and self.vlc_player.get_state() == vlc.State.Ended):
+                QTimer.singleShot(0, self._handle_media_end)
         except Exception:
             pass
 
