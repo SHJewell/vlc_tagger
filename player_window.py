@@ -130,7 +130,14 @@ class PlayerWindow(QMainWindow):
         # Initialize VLC if available
         if VLC_AVAILABLE:
             try:
-                self.vlc_instance = vlc.Instance('--no-xlib')
+                # Force the Direct3D9 output instead of the default D3D11 one.
+                # D3D11's vout close path calls DWM's SetThumbnailClip, which
+                # returns 0x800706f4 (invalid window handle) during our rapid
+                # stop/set_media/play track transitions and deadlocks libVLC's
+                # render thread -- this is what causes the app to hang instead
+                # of advancing to the next track (see log's SetThumbNailClip
+                # errors immediately preceding every unclean restart).
+                self.vlc_instance = vlc.Instance('--no-xlib', '--vout=direct3d9', '--aout=directsound')
                 self.vlc_instance.log_set(_vlc_log_cb, None)
                 self.vlc_player = self.vlc_instance.media_player_new()
                 self.logger.info('VLC player initialized')

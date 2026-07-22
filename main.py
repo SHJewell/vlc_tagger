@@ -3,9 +3,6 @@ VLC Tagger - New UI Version
 Main application that launches both player and file windows
 
 TODO:
-    Crashes with this log message:
-        "direct3d11 vout display error: SetThumbNailClip failed: 0x800706f4"
-
     File organization
     Dark mode support
     Undo button for "Clear Playlist" button
