@@ -16,6 +16,7 @@ TODO:
 import sys
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QTimer
 
@@ -38,10 +39,18 @@ def setup_logging():
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler("vlc_tagger.log", encoding="utf-8"),
+            RotatingFileHandler("vlc_tagger.log", maxBytes=5_000_000,
+                                backupCount=3, encoding="utf-8"),
             logging.StreamHandler()
         ]
     )
+
+    # Third-party libraries pulled in transitively (seen in past logs: numba's
+    # JIT tracing, which this app never imports directly) log at DEBUG under
+    # the root logger and can drown out the player/libvlc lines that actually
+    # matter when diagnosing a freeze. Keep them quiet.
+    for noisy_logger in ('numba', 'PIL'):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
 class VLCTaggerApp:

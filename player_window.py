@@ -28,22 +28,30 @@ if VLC_AVAILABLE:
         libVLC normally writes straight to stderr, bypassing logging entirely.
         Levels: 0=debug, 1=info, 2=notice, 3=warning, 4=error.
         """
-        if level < 2:  # Skip debug/info noise (only show notice and above)
-            return
-
-        # Filter out benign h264 codec warnings during media transitions
         try:
             buf = ctypes.create_string_buffer(1024)
             ctypes.cdll.msvcrt.vsnprintf(buf, len(buf), fmt, ctypes.cast(args, ctypes.c_void_p))
             msg = buf.value.decode('utf-8', errors='replace')
-
-            # Skip expected h264 frame decode warnings during transitions
-            if any(skip in msg for skip in
-                   ['get_buffer() failed', 'thread_get_buffer', 'decode_slice_header', 'no frame']):
-                return
-
         except Exception:
             msg = '<unformattable libVLC message>'
+
+        # Module-loader messages ("using <module> module", "looking for
+        # video/audio output module...") are logged below the notice level,
+        # so the normal cutoff below would hide them -- but they're the only
+        # way to see which vout/aout backend libVLC actually picked (e.g.
+        # whether --vout=direct3d9 was honored or it fell back to direct3d11).
+        # Surface them regardless of level; this is cheap since they're rare.
+        is_module_selection = level < 2 and any(
+            kw in msg for kw in ('vout', 'aout', 'video output module', 'audio output module')
+        )
+
+        if level < 2 and not is_module_selection:  # Skip debug/info noise
+            return
+
+        # Skip expected h264 frame decode warnings during transitions
+        if any(skip in msg for skip in
+               ['get_buffer() failed', 'thread_get_buffer', 'decode_slice_header', 'no frame']):
+            return
 
         logging.getLogger('libvlc').log(
             {3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG), msg)
@@ -322,8 +330,11 @@ class PlayerWindow(QMainWindow):
 
         try:
             # Create VLC media
+            self.logger.debug('transition: calling media_new()')
             self.vlc_media = self.vlc_instance.media_new(file_path)
+            self.logger.debug('transition: calling set_media()')
             self.vlc_player.set_media(self.vlc_media)
+            self.logger.debug('transition: set_media() returned')
 
             # Re-arm the end-of-media guard for the new track
             self._end_handled = False
@@ -343,7 +354,9 @@ class PlayerWindow(QMainWindow):
 
             # Only start playback if autoplay is True
             if autoplay:
+                self.logger.debug('transition: calling vlc_player.play()')
                 self.vlc_player.play()
+                self.logger.debug('transition: vlc_player.play() returned')
                 self.is_playing = True
                 self.is_paused = False
                 self.play_pause_button.setText("⏸ Pause")
@@ -394,7 +407,9 @@ class PlayerWindow(QMainWindow):
         self.play_pause_button.setText("▶ Play")
 
         # Stop current playback resources (detaches events)
+        self.logger.debug('media-end: calling _stop_playback()')
         self._stop_playback()
+        self.logger.debug('media-end: _stop_playback() returned, scheduling next_track')
 
         # Auto-play next track via file window
         QTimer.singleShot(100, self.next_track)
@@ -403,7 +418,9 @@ class PlayerWindow(QMainWindow):
         """Stop all playback and detach events"""
         if self.vlc_player:
             try:
+                self.logger.debug('transition: calling vlc_player.stop()')
                 self.vlc_player.stop()
+                self.logger.debug('transition: vlc_player.stop() returned')
             except Exception:
                 pass
 
@@ -411,7 +428,9 @@ class PlayerWindow(QMainWindow):
         try:
             if hasattr(self, '_vlc_event_manager') and self._vlc_event_manager:
                 try:
+                    self.logger.debug('transition: calling event_detach()')
                     self._vlc_event_manager.event_detach(vlc.EventType.MediaPlayerEndReached)
+                    self.logger.debug('transition: event_detach() returned')
                 except Exception:
                     pass
                 self._vlc_event_manager = None
