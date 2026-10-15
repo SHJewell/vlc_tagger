@@ -26,16 +26,25 @@ if VLC_AVAILABLE:
         """Route libVLC's log stream into Python logging.
 
         libVLC normally writes straight to stderr, bypassing logging entirely.
-        Levels: 0=debug, 2=notice, 3=warning, 4=error.
+        Levels: 0=debug, 1=info, 2=notice, 3=warning, 4=error.
         """
-        if level < 3:  # skip debug/notice noise
+        if level < 2:  # Skip debug/info noise (only show notice and above)
             return
+
+        # Filter out benign h264 codec warnings during media transitions
         try:
             buf = ctypes.create_string_buffer(1024)
             ctypes.cdll.msvcrt.vsnprintf(buf, len(buf), fmt, ctypes.cast(args, ctypes.c_void_p))
             msg = buf.value.decode('utf-8', errors='replace')
+
+            # Skip expected h264 frame decode warnings during transitions
+            if any(skip in msg for skip in
+                   ['get_buffer() failed', 'thread_get_buffer', 'decode_slice_header', 'no frame']):
+                return
+
         except Exception:
             msg = '<unformattable libVLC message>'
+
         logging.getLogger('libvlc').log(
             {3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG), msg)
 
