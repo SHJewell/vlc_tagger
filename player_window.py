@@ -331,10 +331,15 @@ class PlayerWindow(QMainWindow):
         try:
             # Create VLC media
             self.logger.debug('transition: calling media_new()')
+            old_media = self.vlc_media
             self.vlc_media = self.vlc_instance.media_new(file_path)
             self.logger.debug('transition: calling set_media()')
             self.vlc_player.set_media(self.vlc_media)
             self.logger.debug('transition: set_media() returned')
+
+            # Release the previous media now that the player no longer references it
+            if old_media is not None:
+                old_media.release()
 
             # Re-arm the end-of-media guard for the new track
             self._end_handled = False

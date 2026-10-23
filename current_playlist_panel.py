@@ -26,10 +26,9 @@ def getOpenFilesAndDirs(parent=None, caption='', directory='',
     # Posted by musicamante
     # Retrieved 2026-02-11, License - CC BY-SA 4.0
     def updateText():
-        def updateText():
-            selected = view.selectionModel().selectedRows()
-            if selected:
-                lineEdit.setText(selected[0].data())
+        selected = view.selectionModel().selectedRows()
+        if selected:
+            lineEdit.setText(selected[0].data())
 
     dialog = QFileDialog(parent, windowTitle=caption)
     dialog.setFileMode(dialog.AnyFile)
