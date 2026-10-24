@@ -135,6 +135,11 @@ class PlayerWindow(QMainWindow):
             self.volume = self.config_manager.get_volume()
             self.shuffle_mode = self.config_manager.get_shuffle_mode()
 
+        # The playlist panel keeps its own shuffle flag; sync it at launch or
+        # the button can show shuffle on while tracks play in order
+        if self.file_window_callback:
+            self.file_window_callback('shuffle', self.shuffle_mode)
+
         self.setWindowTitle("Media Player")
         self.setGeometry(100, 100, 800, 700)
         

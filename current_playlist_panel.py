@@ -269,6 +269,9 @@ class CurrentPlaylistPanel(QWidget):
         """Handle double-click on a file"""
         row = self.file_list.row(item)
         if 0 <= row < len(self.playlist_files):
+            # Remember where we were so Previous in shuffle can come back
+            if self.shuffle_mode and row != self.current_index:
+                self._push_shuffle_history()
             self.current_index = row
             if self.play_callback:
                 self.play_callback(self.playlist_files[row])
@@ -297,7 +300,7 @@ class CurrentPlaylistPanel(QWidget):
                 return None
 
             next_index = random.choice(available)
-            self.shuffle_history.append(self.current_index)
+            self._push_shuffle_history()
         else:
             # Normal sequential playback
             if self.current_index < len(self.playlist_files) - 1:
@@ -319,10 +322,17 @@ class CurrentPlaylistPanel(QWidget):
         if not self.playlist_files:
             return None
 
-        if self.shuffle_mode and self.shuffle_history:
-            # Go back in shuffle history
-            prev_index = self.shuffle_history.pop()
-        else:
+        # Go back in shuffle history, skipping any invalid entries (a stray
+        # -1 would otherwise index from the end and play the last track)
+        prev_index = None
+        if self.shuffle_mode:
+            while self.shuffle_history:
+                candidate = self.shuffle_history.pop()
+                if 0 <= candidate < len(self.playlist_files):
+                    prev_index = candidate
+                    break
+
+        if prev_index is None:
             # Normal sequential playback
             if self.current_index > 0:
                 prev_index = self.current_index - 1
@@ -337,6 +347,11 @@ class CurrentPlaylistPanel(QWidget):
             self.config_manager.set_current_playlist_index(self.current_index, auto_save=False)
 
         return self.playlist_files[prev_index]
+
+    def _push_shuffle_history(self):
+        """Record the current track for shuffle's Previous, if it's a real one"""
+        if 0 <= self.current_index < len(self.playlist_files):
+            self.shuffle_history.append(self.current_index)
 
     def set_shuffle_mode(self, enabled):
         """Enable or disable shuffle mode"""
