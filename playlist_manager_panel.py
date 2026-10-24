@@ -169,7 +169,8 @@ class PlaylistManagerPanel(QWidget):
     def _load_playlist_as_current(self, item):
         """Load the selected playlist into the main player"""
         playlist_path = item.data(Qt.UserRole)
-        playlist_path = Path(playlist_path).resolve()
+        # Keep it a str: a Path stored in config breaks restore_playlist's .lower()
+        playlist_path = str(Path(playlist_path).resolve())
 
         self.logger.info(f'Switching playlist {playlist_path} into main player')
         current_playlist_panel = app_registry.get("current_playlist_panel")
