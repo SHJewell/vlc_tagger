@@ -124,6 +124,9 @@ class PlayerWindow(QMainWindow):
         # One-shot guard: end-of-media can be reported by both the libVLC
         # event and the slider-timer fallback; only the first may act
         self._end_handled = False
+        # True after a stop/end: the loaded file's events are detached, so
+        # Play must reload it via play_file rather than just resume
+        self._needs_reload = False
         # Unplayable files in a row; reset once a track actually plays
         self._consecutive_errors = 0
 
@@ -369,6 +372,7 @@ class PlayerWindow(QMainWindow):
                     self._vlc_event_manager.event_attach(getattr(vlc.EventType, name), handler)
             except Exception as e:
                 self.logger.warning(f'Could not attach VLC events: {e}')
+            self._needs_reload = False
 
             self._update_media_info()
 
@@ -494,24 +498,30 @@ class PlayerWindow(QMainWindow):
 
         self.is_playing = False
         self.is_paused = False
-        self.current_file = None
+        # current_file is kept (it's the last loaded file) so Play can
+        # restart it; events are detached, so it must go through play_file
+        self._needs_reload = True
 
     def play_pause(self):
         """Toggle play/pause"""
         if not self.vlc_player or self.current_file is None:
             return
-        
+
         if self.is_playing and not self.is_paused:
             # Pause
             self.vlc_player.pause()
             self.is_paused = True
             self.play_pause_button.setText("▶ Play")
             self.logger.info('Paused')
+        elif self._needs_reload:
+            # Stopped or ended: reload so events and the end guard are re-armed
+            self.play_file(self.current_file)
         else:
             # Play/Resume
             if self.is_paused:
                 self.vlc_player.pause()  # Toggle pause off
             else:
+                # Loaded without autoplay; already set up, just start it
                 self.vlc_player.play()
             self.is_paused = False
             self.is_playing = True
@@ -610,6 +620,8 @@ class PlayerWindow(QMainWindow):
             return
 
         self.stop()
+        # Forget the old profile's track so Play can't restart it
+        self.current_file = None
 
         self.volume = self.config_manager.get_volume()
         self.volume_slider.setValue(self.volume)
@@ -666,9 +678,8 @@ class PlayerWindow(QMainWindow):
         try:
             if self.total_time_label.text() in ["--:--", "00:00"]:
                 duration_ms = self.vlc_player.get_length()
-                # Not playing yet (e.g. loaded without autoplay): fall back to
-                # the background parse result (skipped after Stop, when the
-                # old media is still attached but nothing is loaded)
+                # Not playing yet (e.g. loaded without autoplay or after
+                # Stop): fall back to the background parse result
                 if duration_ms <= 0 and self.vlc_media and self.current_file:
                     duration_ms = self.vlc_media.get_duration()
                 if duration_ms > 0:
