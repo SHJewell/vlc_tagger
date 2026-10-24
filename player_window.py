@@ -10,6 +10,7 @@ import logging
 import platform
 
 import app_registry
+import instance
 
 # Import VLC for media playback
 try:
@@ -143,7 +144,7 @@ class PlayerWindow(QMainWindow):
         if self.file_window_callback:
             self.file_window_callback('shuffle', self.shuffle_mode)
 
-        self.setWindowTitle("Media Player")
+        self.setWindowTitle(f"Media Player{instance.title_suffix()}")
         self.setGeometry(100, 100, 800, 700)
         
         self._setup_ui()
@@ -745,6 +746,29 @@ class PlayerWindow(QMainWindow):
             self.play_pause()
 
         event.accept()
+
+    def release_vlc(self):
+        """Stop playback and free all libVLC objects. Called once at app quit.
+
+        Each step is logged so a hang at exit shows which call never returned.
+        """
+        self.slider_timer.stop()
+        self._stop_playback()   # stops and detaches events first
+
+        for name in ('vlc_media', 'vlc_player', 'vlc_instance'):
+            obj = getattr(self, name)
+            if obj is None:
+                continue
+            # Clear first so nothing (queued signals, timers) can use it after
+            setattr(self, name, None)
+            try:
+                self.logger.debug(f'exit: releasing {name}')
+                obj.release()
+                self.logger.debug(f'exit: {name} released')
+            except Exception as e:
+                self.logger.warning(f'Could not release {name}: {e}')
+
+        self.logger.info('VLC released')
 
     def showEvent(self, event):
         """Resume slider updates when the window is (re)shown"""

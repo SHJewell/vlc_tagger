@@ -12,6 +12,7 @@ from current_playlist_panel import CurrentPlaylistPanel
 from playlist_manager_panel import PlaylistManagerPanel
 
 import app_registry
+import instance
 
 
 class FileWindow(QMainWindow):
@@ -30,7 +31,7 @@ class FileWindow(QMainWindow):
         if config_manager is None:
             self.config_manager = app_registry.get('config_manager')
 
-        self.setWindowTitle("Playlist Manager")
+        self.setWindowTitle(f"Playlist Manager{instance.title_suffix()}")
         self.setGeometry(920, 100, 600, 800)
 
         self._setup_ui()
@@ -131,7 +132,7 @@ class FileWindow(QMainWindow):
     def _update_window_title(self):
         """Show the active profile in the window title"""
         if self.config_manager:
-            self.setWindowTitle(f"Playlist Manager — {self.config_manager.profile_name}")
+            self.setWindowTitle(f"Playlist Manager{instance.title_suffix()} — {self.config_manager.profile_name}")
 
     def _pick_profile(self, title, prompt, profiles=None):
         """Show a list dialog to pick a profile; returns the name or None"""

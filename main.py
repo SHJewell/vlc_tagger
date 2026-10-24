@@ -26,6 +26,7 @@ from config_manager import ConfigManager
 
 # Components (including this app) are looked up via app_registry.get(...)
 import app_registry
+import instance
 
 
 def setup_logging():
@@ -34,7 +35,9 @@ def setup_logging():
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            RotatingFileHandler("vlc_tagger.log", maxBytes=5_000_000,
+            # One log per instance: two processes rotating the same file
+            # fails on Windows and interleaves their lines
+            RotatingFileHandler(instance.log_filename(), maxBytes=5_000_000,
                                 backupCount=3, encoding="utf-8"),
             logging.StreamHandler()
         ]
@@ -53,7 +56,7 @@ class VLCTaggerApp:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.info('Starting VLC Tagger application')
+        self.logger.info(f'Starting VLC Tagger application (instance #{instance.number()})')
 
         # Initialize config manager
         self.config_manager = ConfigManager()
@@ -77,9 +80,9 @@ class VLCTaggerApp:
         # Link windows together
         self.file_window.player_window = self.player_window
 
-        # Closing the player window only pauses; fully stop VLC when the
-        # app actually quits
-        QApplication.instance().aboutToQuit.connect(self.player_window._stop_playback)
+        # Closing the player window only pauses; stop and release VLC when
+        # the app actually quits
+        QApplication.instance().aboutToQuit.connect(self.player_window.release_vlc)
 
         # Restore window positions from config
         self._restore_window_positions()
@@ -165,6 +168,8 @@ class VLCTaggerApp:
 
 
 if __name__ == "__main__":
+    # Before logging: the instance number picks the log file
+    instance.claim()
     setup_logging()
 
     app = QApplication(sys.argv)

@@ -121,7 +121,7 @@ class ConfigManager:
     def _write_json_atomic(path: str, data: Any):
         """Write JSON via a temp file so a crash mid-write can't leave the
         real file truncated; the old file stays intact until the swap"""
-        tmp_path = path + '.tmp'
+        tmp_path = f'{path}.{os.getpid()}.tmp'  # per process: instances may save at once
         with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
             f.flush()
