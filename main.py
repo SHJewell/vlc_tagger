@@ -10,6 +10,10 @@ TODO:
         Audio visualization?
     Audio mixer?
     Small error popup when a file fails to play (see PlayerWindow._handle_media_error)
+    Add right-click "remove playlist" option
+    Add file info columns: artist, album, etc
+        Show file path in tooltip/hovertext
+    Add a "restore window" option to re-open closed windows from the other.
 """
 import sys
 import os

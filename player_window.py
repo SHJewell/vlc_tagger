@@ -400,16 +400,14 @@ class PlayerWindow(QMainWindow):
     def _update_media_info(self):
         """Update media information after loading"""
         if self.vlc_player and self.vlc_media:
-            # Parse media to get duration
-            self.vlc_media.parse()
-
-            # Get duration in milliseconds
-            duration_ms = self.vlc_media.get_duration()
-            if duration_ms > 0:
-                duration_sec = duration_ms / 1000.0
-                self.total_time_label.setText(self._format_time(duration_sec))
-            else:
-                self.total_time_label.setText("--:--")
+            # Parse in the background (local files only, never network) so a
+            # slow drive or http entry can't block the UI; _update_time_slider
+            # fills in the duration once it's known
+            self.total_time_label.setText("--:--")
+            try:
+                self.vlc_media.parse_with_options(vlc.MediaParseFlag.local, 0)
+            except Exception as e:
+                self.logger.debug(f'Background parse not started: {e}')
 
     def _on_media_end(self, event):
         """Called by libVLC on its event thread when media playback ends.
@@ -668,6 +666,11 @@ class PlayerWindow(QMainWindow):
         try:
             if self.total_time_label.text() in ["--:--", "00:00"]:
                 duration_ms = self.vlc_player.get_length()
+                # Not playing yet (e.g. loaded without autoplay): fall back to
+                # the background parse result (skipped after Stop, when the
+                # old media is still attached but nothing is loaded)
+                if duration_ms <= 0 and self.vlc_media and self.current_file:
+                    duration_ms = self.vlc_media.get_duration()
                 if duration_ms > 0:
                     duration_sec = duration_ms / 1000.0
                     self.total_time_label.setText(self._format_time(duration_sec))
