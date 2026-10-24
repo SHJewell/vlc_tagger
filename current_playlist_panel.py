@@ -61,8 +61,12 @@ def getOpenFilesAndDirs(parent=None, caption='', directory='',
     # clear the line edit contents whenever the current directory changes
     dialog.directoryEntered.connect(lambda: lineEdit.setText(''))
 
-    dialog.exec_()
-    return dialog.selectedFiles()[0] if dialog.selectedFiles() else None
+    # On Cancel, selectedFiles() still returns the browsed folder, so the
+    # dialog result has to be checked explicitly
+    if dialog.exec_() != QDialog.Accepted:
+        return None
+    selected = dialog.selectedFiles()
+    return selected[0] if selected else None
 
 class CurrentPlaylistPanel(QWidget):
     """Panel showing current playlist/directory being played"""
