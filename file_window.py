@@ -2,7 +2,7 @@
 File Window - Contains current playlist and playlist manager panels
 """
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-                             QAction, QFileDialog, QSplitter, QDialog, QLabel,
+                             QAction, QSplitter, QDialog, QLabel,
                              QListWidget, QListWidgetItem, QPushButton,
                              QInputDialog, QMessageBox, QApplication)
 from PyQt5.QtCore import Qt

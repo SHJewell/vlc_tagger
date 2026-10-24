@@ -11,6 +11,8 @@ from pathlib import Path
 
 # local imports
 import app_registry
+from config_manager import sanitize_filename
+from m3u_file import M3UFile, track_key
 
 class PlaylistManagerPanel(QWidget):
     """Panel for managing multiple M3U playlists"""
@@ -20,9 +22,11 @@ class PlaylistManagerPanel(QWidget):
 
         self.logger = logging.getLogger(__name__)
         self.config_manager = config_manager
+        # playlist path -> track keys (normalized, for comparing only)
         self.playlists = {}
         self.playlist_dir = None
-        self.current_track = None
+        self.current_track = None       # key of the playing track
+        self.current_track_path = None  # its path as given, written to playlists
 
         self._setup_ui()
         self._load_from_config()
@@ -122,34 +126,12 @@ class PlaylistManagerPanel(QWidget):
             self.logger.error(f'Error loading playlists: {e}')
 
     def _parse_m3u_file(self, file_path):
-        """Parse M3U file and return list of file paths"""
-        files = []
-
+        """Parse M3U file and return its track keys (for highlighting)"""
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
-
-            playlist_dir = os.path.dirname(file_path)
-
-            for line in lines:
-                line = line.strip()
-
-                if not line or line.startswith('#'):
-                    continue
-
-                file_url = line
-
-                if not (file_url.startswith('http') or file_url.startswith('https')):
-                    if not os.path.isabs(file_url):
-                        file_url = os.path.join(playlist_dir, file_url)
-                    file_url = os.path.normcase(os.path.normpath(file_url))
-
-                files.append(file_url)
-
+            return M3UFile.read(file_path).keys()
         except Exception as e:
             self.logger.error(f'Error parsing M3U file {file_path}: {e}')
-
-        return files
+            return []
 
     def _show_context_menu(self, position):
         """Show context menu for playlist items"""
@@ -181,46 +163,38 @@ class PlaylistManagerPanel(QWidget):
             self.logger.error(f'Could not find CurrentPlaylistPanel instance to load {playlist_path}')
             self.logger.error(f'Error loading playlist into main player: {e}')
 
-    def _save_m3u_file(self, playlist_path, files):
-        """Save playlist to M3U file"""
-        try:
-            self.logger.debug(f'Saving playlist to {playlist_path}')
-
-            with open(playlist_path, 'w', encoding='utf-8') as f:
-                f.write("#EXTM3U\n")
-
-                for file_path in files:
-                    filename = os.path.basename(file_path)
-                    f.write(f"#EXTINF:-1,{filename}\n")
-
-                    f.write(f"{file_path}\n")
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f'Error saving M3U file {playlist_path}: {e}')
-            return False
-
     def _on_playlist_clicked(self, item):
-        """Handle playlist item click - add or remove current track"""
+        """Handle playlist item click - add or remove current track.
+
+        Edits the file in place: only the current track's lines change.
+        """
         if not self.current_track:
             QMessageBox.information(self, "No Track Playing",
                                    "Please play a track first before managing playlists.")
             return
 
         playlist_path = item.data(Qt.UserRole)
-        files = self.playlists.get(playlist_path, [])
 
-        normalized_track = os.path.normcase(os.path.normpath(self.current_track))
+        try:
+            # Re-read from disk so edits made in other programs aren't lost
+            m3u = M3UFile.read(playlist_path)
 
-        if normalized_track in files:
-            files.remove(normalized_track)
-            self.playlists[playlist_path] = files
-            self._save_m3u_file(playlist_path, files)
-        else:
-            files.append(normalized_track)
-            self.playlists[playlist_path] = files
-            self._save_m3u_file(playlist_path, files)
+            if m3u.contains(self.current_track):
+                removed = m3u.remove(self.current_track)
+                self.logger.info(f'Removed {removed} entr{"y" if removed == 1 else "ies"} '
+                                 f'from {playlist_path}')
+            else:
+                m3u.add(self.current_track_path)
+                self.logger.info(f'Added {self.current_track_path} to {playlist_path}')
+
+            m3u.write()
+        except Exception as e:
+            self.logger.error(f'Error updating playlist {playlist_path}: {e}')
+            QMessageBox.warning(self, "Playlist Not Updated",
+                                f"Couldn't update {os.path.basename(playlist_path)}:\n{e}")
+            return
+
+        self.playlists[playlist_path] = m3u.keys()
 
         # Add to recent playlists
         if self.config_manager:
@@ -235,25 +209,40 @@ class PlaylistManagerPanel(QWidget):
 
         name, ok = QInputDialog.getText(self, "New Playlist", "Enter playlist name:")
 
-        if ok and name:
-            filename = f"{name}.m3u"
-            playlist_path = os.path.join(self.playlist_dir, filename)
+        if not ok:
+            return
 
-            if os.path.exists(playlist_path):
-                QMessageBox.warning(self, "Playlist Exists",
-                                   f"A playlist named '{name}' already exists.")
-                return
+        name = sanitize_filename(name)
+        if not name:
+            QMessageBox.warning(self, "Invalid Name",
+                                "That name can't be used for a playlist.")
+            return
 
-            self.playlists[playlist_path] = []
-            self._save_m3u_file(playlist_path, [])
+        filename = f"{name}.m3u"
+        playlist_path = os.path.join(self.playlist_dir, filename)
 
-            item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, playlist_path)
-            self.playlist_list.addItem(item)
+        if os.path.exists(playlist_path):
+            QMessageBox.warning(self, "Playlist Exists",
+                               f"A playlist named '{name}' already exists.")
+            return
+
+        try:
+            M3UFile.new(playlist_path).write()
+        except Exception as e:
+            self.logger.error(f'Error creating playlist {playlist_path}: {e}')
+            QMessageBox.warning(self, "Playlist Not Created",
+                                f"Couldn't create {filename}:\n{e}")
+            return
+        self.playlists[playlist_path] = []
+
+        item = QListWidgetItem(name)
+        item.setData(Qt.UserRole, playlist_path)
+        self.playlist_list.addItem(item)
 
     def set_current_track(self, file_path):
         """Update the current track and highlight playlists containing it"""
-        self.current_track = os.path.normcase(os.path.normpath(file_path)) if file_path else None
+        self.current_track = track_key(file_path) if file_path else None
+        self.current_track_path = file_path or None
         self._update_highlighting()
 
     def _update_highlighting(self):

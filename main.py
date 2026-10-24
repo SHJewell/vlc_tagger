@@ -19,20 +19,14 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QTimer
 
 from player_window import PlayerWindow
 from file_window import FileWindow
 from config_manager import ConfigManager
 
-# Module-level reference to the running app instance
+# Components (including this app) are looked up via app_registry.get(...)
 import app_registry
-_app_instance = None
 
-
-def get_app():
-    """Get the running VLCTaggerApp instance"""
-    return _app_instance
 
 def setup_logging():
     """Setup application logging"""
@@ -58,15 +52,8 @@ class VLCTaggerApp:
     """Main application class"""
 
     def __init__(self):
-        global _app_instance
-        _app_instance = self
-
         self.logger = logging.getLogger(__name__)
         self.logger.info('Starting VLC Tagger application')
-
-        # Central component registry — keyed by component name
-        # Only one instance of each is allowed at a time
-        self._components: dict = {}
 
         # Initialize config manager
         self.config_manager = ConfigManager()

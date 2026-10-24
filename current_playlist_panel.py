@@ -4,21 +4,21 @@ Current Playlist Panel - Shows the current playlist or directory being played
 from PyQt5.QtWidgets import (QWidget, QDialog, QStackedWidget, QListView, QLineEdit, QPushButton, QListWidget,
                              QLabel, QFileDialog, QVBoxLayout)
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import os
 import logging
 import random
 
-from typing import Optional, Dict, Any, List
+from typing import Optional
 
-# local imports
-import app_registry
+from m3u_file import M3UFile
+
 # Media file extensions
 MEDIA_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
                     '.mp3', '.wav', '.flac', '.ogg', '.m4a')
 
 PLAYLIST_EXTENSIONS = ('.m3u', '.m3u8')
+
 
 def getOpenFilesAndDirs(parent=None, caption='', directory='',
                         filter='', initialFilter='', options=None):
@@ -157,7 +157,7 @@ class CurrentPlaylistPanel(QWidget):
                     if file.lower().endswith(MEDIA_EXTENSIONS):
                         full_path = os.path.join(path, file)
                         self.playlist_files.append(full_path)
-                        item = self.file_list.addItem(file)
+                        self.file_list.addItem(file)
                         # Set tooltip to show full path
                         self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(full_path))
 
@@ -193,37 +193,19 @@ class CurrentPlaylistPanel(QWidget):
             self._clear_playlist()
 
             try:
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
+                # Shared reader: detects encoding instead of dropping
+                # non-UTF-8 characters
+                m3u = M3UFile.read(path)
+                playlist_dir = m3u.playlist_dir
 
-                playlist_dir = os.path.dirname(path)
-                current_title = None
+                for track in m3u.tracks:
+                    file_url = track.path
+                    display_name = track.title or os.path.basename(file_url)
 
-                for line in lines:
-                    line = line.strip()
-
-                    if not line:
-                        continue
-
-                    if line.startswith('#EXTINF:'):
-                        if ',' in line:
-                            current_title = line.split(',', 1)[1].strip()
-                    elif line.startswith('#'):
-                        continue
-                    else:
-                        file_url = line
-                        display_name = current_title if current_title else os.path.basename(file_url)
-
-                        # Handle relative paths
-                        if not (file_url.startswith('http') or file_url.startswith('https') or os.path.isabs(file_url)):
-                            file_url = os.path.join(playlist_dir, file_url)
-                            file_url = os.path.normpath(file_url)
-
-                        self.playlist_files.append(file_url)
-                        self.file_list.addItem(display_name)
-                        # Set tooltip to show full path/URL
-                        self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_url))
-                        current_title = None
+                    self.playlist_files.append(file_url)
+                    self.file_list.addItem(display_name)
+                    # Set tooltip to show full path/URL
+                    self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_url))
 
                 self.playlist_name_label.setText(f"Playlist: {os.path.basename(path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from M3U')

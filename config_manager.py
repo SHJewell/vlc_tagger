@@ -4,9 +4,20 @@ Config Manager - Handles loading and saving application configuration
 import json
 import os
 import re
+import shutil
+import sys
 import logging
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, List
+
+
+def sanitize_filename(name: str) -> Optional[str]:
+    """Strip characters Windows doesn't allow in filenames; None if nothing
+    usable is left. Used for profile and playlist names."""
+    if not name:
+        return None
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name).strip().rstrip('.')
+    return name or None
 
 
 class ConfigManager:
@@ -28,9 +39,7 @@ class ConfigManager:
 
         # Set config directory
         if config_dir is None:
-            # Use 'config' directory in the current working directory
-            config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
-            # config_dir = os.path.join(os.getcwd(), 'config')
+            config_dir = self._default_config_dir()
 
         self.config_dir = config_dir
         self.profiles_dir = os.path.join(self.config_dir, 'profiles')
@@ -62,6 +71,32 @@ class ConfigManager:
         self._set_last_profile(profile_name)
 
         self.logger.info(f'Config manager initialized with profile: {profile_name}')
+
+    def _default_config_dir(self) -> str:
+        """Where profiles live.
+
+        Dev runs: ./config next to the source. Compiled exe: %APPDATA%, since
+        anything next to the code ends up inside the build output (_internal)
+        and is lost on every rebuild. Kept separate on purpose so dev testing
+        can't touch the profiles actually in use.
+        """
+        legacy_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
+        if not getattr(sys, 'frozen', False):
+            return legacy_dir
+
+        appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+        config_dir = os.path.join(appdata, 'VLC Tagger', 'config')
+
+        # First compiled launch after this change: carry over the build's
+        # existing profiles so nothing is lost
+        if not os.path.exists(config_dir) and os.path.isdir(legacy_dir):
+            try:
+                shutil.copytree(legacy_dir, config_dir)
+                self.logger.info(f'Migrated config from {legacy_dir} to {config_dir}')
+            except Exception as e:
+                self.logger.error(f'Failed to migrate config from {legacy_dir}: {e}')
+
+        return config_dir
 
     # App-level settings (not per-profile)
     def _load_settings(self) -> Dict[str, Any]:
@@ -110,10 +145,7 @@ class ConfigManager:
     @staticmethod
     def sanitize_profile_name(name: str) -> Optional[str]:
         """Clean a profile name for use as a filename; None if unusable"""
-        if not name:
-            return None
-        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name).strip().rstrip('.')
-        return name or None
+        return sanitize_filename(name)
 
     def _ensure_directories(self):
         """Ensure config directories exist"""
