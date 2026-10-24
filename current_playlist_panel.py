@@ -279,9 +279,9 @@ class CurrentPlaylistPanel(QWidget):
             self.current_index = self.playlist_files.index(file_path)
             self.file_list.setCurrentRow(self.current_index)
 
-            # Save current index to config
+            # Update index in memory; play_file's save writes it to disk
             if self.config_manager:
-                self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+                self.config_manager.set_current_playlist_index(self.current_index, auto_save=False)
 
             self.logger.debug(f'Current file set to index {self.current_index}')
 
@@ -308,9 +308,9 @@ class CurrentPlaylistPanel(QWidget):
         self.current_index = next_index
         self.file_list.setCurrentRow(next_index)
 
-        # Save current index to config
+        # Update index in memory; play_file's save writes it to disk
         if self.config_manager:
-            self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+            self.config_manager.set_current_playlist_index(self.current_index, auto_save=False)
 
         return self.playlist_files[next_index]
 
@@ -332,9 +332,9 @@ class CurrentPlaylistPanel(QWidget):
         self.current_index = prev_index
         self.file_list.setCurrentRow(prev_index)
 
-        # Save current index to config
+        # Update index in memory; play_file's save writes it to disk
         if self.config_manager:
-            self.config_manager.set_current_playlist_index(self.current_index, auto_save=True)
+            self.config_manager.set_current_playlist_index(self.current_index, auto_save=False)
 
         return self.playlist_files[prev_index]
 

@@ -244,6 +244,8 @@ class PlayerWindow(QMainWindow):
         self.volume_slider.setValue(self.volume)  # Use saved volume
         self.volume_slider.setMaximumWidth(100)
         self.volume_slider.valueChanged.connect(self._set_volume)
+        # Persist only once the drag ends, not on every step
+        self.volume_slider.sliderReleased.connect(self._save_volume)
         controls_layout.addWidget(self.volume_slider)
         
         # Mute button
@@ -538,11 +540,16 @@ class PlayerWindow(QMainWindow):
         if self.vlc_player:
             self.vlc_player.audio_set_volume(self.volume)
 
-        # Save volume to config
+        # Update config in memory; written to disk by _save_volume on release
         if self.config_manager:
-            self.config_manager.set_volume(self.volume, auto_save=True)
+            self.config_manager.set_volume(self.volume, auto_save=False)
 
         self.logger.debug(f'Volume set to: {self.volume}')
+
+    def _save_volume(self):
+        """Write the volume to disk once the slider is released"""
+        if self.config_manager:
+            self.config_manager.save()
 
     def reload_from_config(self):
         """Re-apply settings after a profile switch.

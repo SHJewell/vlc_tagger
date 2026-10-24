@@ -78,10 +78,20 @@ class ConfigManager:
         """Save app-level settings to config/settings.json"""
         try:
             os.makedirs(self.config_dir, exist_ok=True)
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(self.settings, f, indent=4)
+            self._write_json_atomic(self.settings_file, self.settings)
         except Exception as e:
             self.logger.error(f'Failed to save settings: {e}')
+
+    @staticmethod
+    def _write_json_atomic(path: str, data: Any):
+        """Write JSON via a temp file so a crash mid-write can't leave the
+        real file truncated; the old file stays intact until the swap"""
+        tmp_path = path + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
 
     def _set_last_profile(self, profile_name: str):
         """Record the active profile so the next launch reopens it"""
@@ -218,8 +228,7 @@ class ConfigManager:
 
             serializable_config = make_serializable(self.config)
 
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(serializable_config, f, indent=4)
+            self._write_json_atomic(self.config_file, serializable_config)
 
         except Exception as e:
             self.logger.error(f'Failed to save config: {e}')
