@@ -2,11 +2,14 @@
 Player Window - Displays video/audio player with controls
 """
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QSlider, QLabel, QAction, QFileDialog)
+                             QPushButton, QSlider, QLabel, QAction, QFileDialog,
+                             QApplication)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 import ctypes
 import logging
 import platform
+
+import app_registry
 
 # Import VLC for media playback
 try:
@@ -289,10 +292,16 @@ class PlayerWindow(QMainWindow):
         open_action.triggered.connect(self._open_file)
         file_menu.addAction(open_action)
         
+        self.restore_playlist_action = QAction('Restore Playlist Window', self)
+        self.restore_playlist_action.triggered.connect(self._restore_playlist_window)
+        file_menu.addAction(self.restore_playlist_action)
+        file_menu.aboutToShow.connect(self._update_restore_action)
+
         file_menu.addSeparator()
-        
+
+        # Exit quits the whole app; closing the window with X only hides it
         exit_action = QAction('Exit', self)
-        exit_action.triggered.connect(self.close)
+        exit_action.triggered.connect(QApplication.closeAllWindows)
         file_menu.addAction(exit_action)
         
         # Playback menu
@@ -343,7 +352,12 @@ class PlayerWindow(QMainWindow):
             return
 
         self.logger.info(f'Playing file: {file_path}')
-        
+
+        # Reopen the player if it was closed (files loaded without autoplay,
+        # e.g. on a profile switch, don't pop it open)
+        if autoplay and not self.isVisible():
+            self.bring_to_front()
+
         # Stop current playback if any
         self._stop_playback()
 
@@ -725,9 +739,37 @@ class PlayerWindow(QMainWindow):
                 auto_save=True
             )
 
-        self.slider_timer.stop()
-
-        # Stop all playback
-        self._stop_playback()
+        # Pause rather than stop, so restoring the window can resume. The
+        # window is only hidden, not destroyed (see restore actions)
+        if self.is_playing and not self.is_paused:
+            self.play_pause()
 
         event.accept()
+
+    def showEvent(self, event):
+        """Resume slider updates when the window is (re)shown"""
+        super().showEvent(event)
+        if not self.slider_timer.isActive():
+            self.slider_timer.start(100)
+
+    def hideEvent(self, event):
+        """No need to update the slider while the window is hidden"""
+        super().hideEvent(event)
+        self.slider_timer.stop()
+
+    def bring_to_front(self):
+        """Show (or reopen) this window and focus it"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_restore_action(self):
+        """Only offer 'Restore Playlist Window' when it's actually closed"""
+        file_window = app_registry.get('file_window')
+        self.restore_playlist_action.setEnabled(
+            file_window is not None and not file_window.isVisible())
+
+    def _restore_playlist_window(self):
+        file_window = app_registry.get('file_window')
+        if file_window:
+            file_window.bring_to_front()

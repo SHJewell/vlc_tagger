@@ -13,7 +13,6 @@ TODO:
     Add right-click "remove playlist" option
     Add file info columns: artist, album, etc
         Show file path in tooltip/hovertext
-    Add a "restore window" option to re-open closed windows from the other.
 """
 import sys
 import os
@@ -90,6 +89,10 @@ class VLCTaggerApp:
 
         # Link windows together
         self.file_window.player_window = self.player_window
+
+        # Closing the player window only pauses; fully stop VLC when the
+        # app actually quits
+        QApplication.instance().aboutToQuit.connect(self.player_window._stop_playback)
 
         # Restore window positions from config
         self._restore_window_positions()

@@ -4,7 +4,7 @@ File Window - Contains current playlist and playlist manager panels
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QAction, QFileDialog, QSplitter, QDialog, QLabel,
                              QListWidget, QListWidgetItem, QPushButton,
-                             QInputDialog, QMessageBox)
+                             QInputDialog, QMessageBox, QApplication)
 from PyQt5.QtCore import Qt
 import logging
 
@@ -81,10 +81,16 @@ class FileWindow(QMainWindow):
         load_playlist_action.triggered.connect(self.current_playlist_panel._load_current_playlist)
         file_menu.addAction(load_playlist_action)
 
+        self.restore_player_action = QAction('Restore Player Window', self)
+        self.restore_player_action.triggered.connect(self._restore_player_window)
+        file_menu.addAction(self.restore_player_action)
+        file_menu.aboutToShow.connect(self._update_restore_action)
+
         file_menu.addSeparator()
 
+        # Exit quits the whole app; closing the window with X only hides it
         exit_action = QAction('Exit', self)
-        exit_action.triggered.connect(self.close)
+        exit_action.triggered.connect(QApplication.closeAllWindows)
         file_menu.addAction(exit_action)
 
         # Playlist menu
@@ -299,5 +305,21 @@ class FileWindow(QMainWindow):
                 auto_save=True
             )
 
+        # The window is only hidden, so 'Restore Playlist Window' can reopen it
         event.accept()
+
+    def bring_to_front(self):
+        """Show (or reopen) this window and focus it"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_restore_action(self):
+        """Only offer 'Restore Player Window' when it's actually closed"""
+        self.restore_player_action.setEnabled(
+            self.player_window is not None and not self.player_window.isVisible())
+
+    def _restore_player_window(self):
+        if self.player_window:
+            self.player_window.bring_to_front()
 
