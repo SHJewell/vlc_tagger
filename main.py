@@ -5,13 +5,11 @@ Main application that launches both player and file windows
 TODO:
     File organization
     Dark mode support
-    Undo button for "Clear Playlist" button
-        Or maybe just get rid of it entirely?
-    Preferences and configs
     Make screen collapsible
         Make that default for audio files?
         Audio visualization?
     Audio mixer?
+    Small error popup when a file fails to play (see PlayerWindow._handle_media_error)
 """
 import sys
 import os

@@ -82,6 +82,17 @@ class PlayerWindow(QMainWindow):
 
     # Emitted from the libVLC event thread; queued to the Qt main thread
     media_ended = pyqtSignal()
+    media_error = pyqtSignal()
+    media_playing = pyqtSignal()
+
+    # Stop auto-advancing after this many unplayable files in a row, so a
+    # playlist of broken files (esp. in shuffle, which never ends) can't
+    # skip forever
+    MAX_CONSECUTIVE_ERRORS = 5
+
+    # libVLC events attached per track in play_file, detached in _stop_playback
+    _VLC_EVENT_NAMES = ('MediaPlayerEndReached', 'MediaPlayerEncounteredError',
+                        'MediaPlayerPlaying')
 
     def __init__(self, file_window_callback=None, config_manager=None):
         super().__init__()
@@ -113,6 +124,8 @@ class PlayerWindow(QMainWindow):
         # One-shot guard: end-of-media can be reported by both the libVLC
         # event and the slider-timer fallback; only the first may act
         self._end_handled = False
+        # Unplayable files in a row; reset once a track actually plays
+        self._consecutive_errors = 0
 
         # Load saved volume from config
         if self.config_manager:
@@ -128,6 +141,8 @@ class PlayerWindow(QMainWindow):
         # queued connection so _handle_media_end always runs on the Qt main
         # thread (calling into libVLC from its own event thread deadlocks)
         self.media_ended.connect(self._handle_media_end, Qt.QueuedConnection)
+        self.media_error.connect(self._handle_media_error, Qt.QueuedConnection)
+        self.media_playing.connect(self._handle_media_playing, Qt.QueuedConnection)
 
         # Timer for updating time slider
         self.slider_timer = QTimer()
@@ -346,13 +361,14 @@ class PlayerWindow(QMainWindow):
             # Re-arm the end-of-media guard for the new track
             self._end_handled = False
 
-            # Attach end-of-media event (store manager to detach later)
+            # Attach end/error/playing events (store manager to detach later)
             try:
                 self._vlc_event_manager = self.vlc_player.event_manager()
-                # Avoid attaching multiple handlers if already attached
-                self._vlc_event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_media_end)
+                handlers = (self._on_media_end, self._on_media_error, self._on_media_playing)
+                for name, handler in zip(self._VLC_EVENT_NAMES, handlers):
+                    self._vlc_event_manager.event_attach(getattr(vlc.EventType, name), handler)
             except Exception as e:
-                self.logger.warning(f'Could not attach VLC end event: {e}')
+                self.logger.warning(f'Could not attach VLC events: {e}')
 
             self._update_media_info()
 
@@ -404,6 +420,39 @@ class PlayerWindow(QMainWindow):
         self.logger.info('Media playback ended')
         self.media_ended.emit()
 
+    def _on_media_error(self, event):
+        """libVLC event thread: the current file couldn't be played"""
+        self.media_error.emit()
+
+    def _on_media_playing(self, event):
+        """libVLC event thread: playback actually started"""
+        self.media_playing.emit()
+
+    def _handle_media_playing(self):
+        """A track played successfully, so reset the bad-file streak"""
+        self._consecutive_errors = 0
+
+    def _handle_media_error(self):
+        """Skip an unplayable file, unless too many have failed in a row"""
+        if self._end_handled:
+            return
+
+        self._consecutive_errors += 1
+        self.logger.warning(
+            f'Could not play file ({self._consecutive_errors} in a row): {self.current_file}')
+
+        if self._consecutive_errors >= self.MAX_CONSECUTIVE_ERRORS:
+            self.logger.error(
+                f'{self._consecutive_errors} files in a row failed to play; '
+                'stopping auto-advance')
+            self._end_handled = True
+            self._stop_playback()
+            self.play_pause_button.setText("▶ Play")
+            return
+
+        # Same path as a normal end of track: stop, then Next after 100ms
+        self._handle_media_end()
+
     def _handle_media_end(self):
         """Handle end-of-media actions on the Qt thread"""
         if self._end_handled:
@@ -431,15 +480,16 @@ class PlayerWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Detach previously attached end event to avoid duplicate callbacks
+        # Detach previously attached events to avoid duplicate callbacks
         try:
             if hasattr(self, '_vlc_event_manager') and self._vlc_event_manager:
-                try:
-                    self.logger.debug('transition: calling event_detach()')
-                    self._vlc_event_manager.event_detach(vlc.EventType.MediaPlayerEndReached)
-                    self.logger.debug('transition: event_detach() returned')
-                except Exception:
-                    pass
+                self.logger.debug('transition: calling event_detach()')
+                for name in self._VLC_EVENT_NAMES:
+                    try:
+                        self._vlc_event_manager.event_detach(getattr(vlc.EventType, name))
+                    except Exception:
+                        pass
+                self.logger.debug('transition: event_detach() returned')
                 self._vlc_event_manager = None
         except Exception:
             pass
@@ -624,11 +674,15 @@ class PlayerWindow(QMainWindow):
         except Exception:
             pass
 
-        # Fallback: check VLC player state for Ended
+        # Fallback: check VLC player state for Ended/Error in case the event
+        # was missed (both handlers ignore repeats via _end_handled)
         try:
-            if (not self._end_handled and VLC_AVAILABLE and self.vlc_player
-                    and self.vlc_player.get_state() == vlc.State.Ended):
-                QTimer.singleShot(0, self._handle_media_end)
+            if not self._end_handled and VLC_AVAILABLE and self.vlc_player:
+                state = self.vlc_player.get_state()
+                if state == vlc.State.Ended:
+                    QTimer.singleShot(0, self._handle_media_end)
+                elif state == vlc.State.Error:
+                    QTimer.singleShot(0, self._handle_media_error)
         except Exception:
             pass
 
