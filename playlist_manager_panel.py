@@ -4,13 +4,14 @@ Playlist Manager Panel - Shows available playlists and allows adding/removing cu
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget, QMenu,
                              QLabel, QFileDialog, QListWidgetItem, QMessageBox, QInputDialog)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont, QBrush
 import os
 import logging
 from pathlib import Path
 
 # local imports
 import app_registry
+import theme
 from config_manager import sanitize_filename
 from m3u_file import M3UFile, track_key
 
@@ -256,12 +257,12 @@ class PlaylistManagerPanel(QWidget):
             files = self.playlists.get(playlist_path, [])
 
             if self.current_track in files:
-                item.setBackground(QColor(173, 216, 230))
+                item.setBackground(theme.track_highlight())
                 font = item.font()
                 font.setBold(True)
                 item.setFont(font)
             else:
-                item.setBackground(QColor(255, 255, 255))
+                item.setBackground(QBrush())  # theme's normal background
                 font = item.font()
                 font.setBold(False)
                 item.setFont(font)

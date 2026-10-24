@@ -129,6 +129,20 @@ class FileWindow(QMainWindow):
         save_config_action.triggered.connect(self.config_manager.save)
         profile_menu.addAction(save_config_action)
 
+        # View menu (dark mode is app-wide; both windows' items stay in sync)
+        view_menu = menubar.addMenu('View')
+        self.dark_mode_action = QAction('Dark Mode', self)
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setChecked(
+            bool(self.config_manager and self.config_manager.get_dark_mode()))
+        self.dark_mode_action.triggered.connect(self._toggle_dark_mode)
+        view_menu.addAction(self.dark_mode_action)
+
+    def _toggle_dark_mode(self, enabled):
+        app = app_registry.get('app')
+        if app:
+            app.set_dark_mode(enabled)
+
     def _update_window_title(self):
         """Show the active profile in the window title"""
         if self.config_manager:

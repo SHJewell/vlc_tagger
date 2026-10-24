@@ -128,10 +128,23 @@ class ConfigManager:
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
 
+    def _set_setting(self, key: str, value: Any):
+        """Change one app-level setting. Re-reads the file first so a change
+        made by another running instance isn't overwritten."""
+        self.settings = self._load_settings()
+        self.settings[key] = value
+        self._save_settings()
+
     def _set_last_profile(self, profile_name: str):
         """Record the active profile so the next launch reopens it"""
-        self.settings['last_profile'] = profile_name
-        self._save_settings()
+        self._set_setting('last_profile', profile_name)
+
+    def get_dark_mode(self) -> bool:
+        """Dark mode is app-wide (settings.json), not per profile"""
+        return bool(self.settings.get('dark_mode', False))
+
+    def set_dark_mode(self, enabled: bool):
+        self._set_setting('dark_mode', bool(enabled))
 
     @contextmanager
     def applying(self):
@@ -194,7 +207,7 @@ class ConfigManager:
             'recent_playlists': [],
 
             # UI settings
-            'theme': 'default',
+            'theme': 'default',  # unused: dark mode is app-wide, in settings.json
             'current_playlist_index': -1
         }
 

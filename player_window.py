@@ -334,6 +334,15 @@ class PlayerWindow(QMainWindow):
         self.autoplay_action.setChecked(self.autoplay_on_launch)
         self.autoplay_action.triggered.connect(self._toggle_autoplay_on_launch)
         playback_menu.addAction(self.autoplay_action)
+
+        # View menu (dark mode is app-wide; both windows' items stay in sync)
+        view_menu = menubar.addMenu('View')
+        self.dark_mode_action = QAction('Dark Mode', self)
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setChecked(
+            bool(self.config_manager and self.config_manager.get_dark_mode()))
+        self.dark_mode_action.triggered.connect(self._toggle_dark_mode)
+        view_menu.addAction(self.dark_mode_action)
     
     def _open_file(self):
         """Open file dialog to select a media file"""
@@ -596,6 +605,11 @@ class PlayerWindow(QMainWindow):
             self.vlc_player.audio_set_mute(False)
 
         self.logger.info(f'Mute: {self.is_muted}')
+
+    def _toggle_dark_mode(self, enabled):
+        app = app_registry.get('app')
+        if app:
+            app.set_dark_mode(enabled)
 
     def _toggle_autoplay_on_launch(self):
         """Toggle autoplay on launch"""

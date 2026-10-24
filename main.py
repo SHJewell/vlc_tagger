@@ -27,6 +27,7 @@ from config_manager import ConfigManager
 # Components (including this app) are looked up via app_registry.get(...)
 import app_registry
 import instance
+import theme
 
 
 def setup_logging():
@@ -60,6 +61,9 @@ class VLCTaggerApp:
 
         # Initialize config manager
         self.config_manager = ConfigManager()
+
+        # Theme before any window exists, so nothing flashes light first
+        theme.apply(self.config_manager.get_dark_mode())
 
         # Create file window first
         self.file_window = FileWindow(config_manager=self.config_manager)
@@ -161,6 +165,17 @@ class VLCTaggerApp:
             # depending on the profile's autoplay setting)
             self._restore_window_positions()
             self._restore_previous_state()
+
+    def set_dark_mode(self, enabled: bool):
+        """View > Dark Mode from either window: apply, save, sync both menus"""
+        theme.apply(enabled)
+        self.config_manager.set_dark_mode(enabled)
+
+        self.player_window.dark_mode_action.setChecked(enabled)
+        self.file_window.dark_mode_action.setChecked(enabled)
+
+        # Row highlight colors depend on the theme
+        self.file_window.playlist_manager_panel._update_highlighting()
 
     def run(self):
         """Run the application"""
