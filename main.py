@@ -13,6 +13,7 @@ TODO:
     Add right-click "remove playlist" option
     Add file info columns: artist, album, etc
         Show file path in tooltip/hovertext
+    Add "save as" config to set location.
 """
 import sys
 import os

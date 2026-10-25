@@ -131,6 +131,9 @@ class PlayerWindow(QMainWindow):
         # True after a stop/end: the loaded file's events are detached, so
         # Play must reload it via play_file rather than just resume
         self._needs_reload = False
+        # Set when the window is closed / after a restore (see _rebuild_video_output)
+        self._rebuild_vout_on_show = False
+        self._seek_on_resume = False
         # Unplayable files in a row; reset once a track actually plays
         self._consecutive_errors = 0
 
@@ -370,6 +373,7 @@ class PlayerWindow(QMainWindow):
 
         # Stop current playback if any
         self._stop_playback()
+        self._seek_on_resume = False  # new file gets a fresh video output
 
         self.current_file = file_path
         
@@ -549,6 +553,11 @@ class PlayerWindow(QMainWindow):
             # Play/Resume
             if self.is_paused:
                 self.vlc_player.pause()  # Toggle pause off
+                if self._seek_on_resume:
+                    # After a window restore the video stays blank until a
+                    # seek; seeking to the current time kicks it back on
+                    self._seek_on_resume = False
+                    self.vlc_player.set_time(self.vlc_player.get_time())
             else:
                 # Loaded without autoplay; already set up, just start it
                 self.vlc_player.play()
@@ -759,6 +768,8 @@ class PlayerWindow(QMainWindow):
         if self.is_playing and not self.is_paused:
             self.play_pause()
 
+        # libVLC's video output dies while the window is hidden; rebuild it on restore
+        self._rebuild_vout_on_show = True
         event.accept()
 
     def release_vlc(self):
@@ -789,6 +800,40 @@ class PlayerWindow(QMainWindow):
         super().showEvent(event)
         if not self.slider_timer.isActive():
             self.slider_timer.start(100)
+        if getattr(self, '_rebuild_vout_on_show', False):
+            self._rebuild_vout_on_show = False
+            # Wait until the native window is actually visible again
+            QTimer.singleShot(0, self._rebuild_video_output)
+
+    def _rebuild_video_output(self):
+        """Reattach video after the window was closed and restored.
+
+        Without this only the audio keeps playing: the Direct3D video output
+        was torn down while the window was hidden, and libVLC doesn't recreate
+        it on its own. Rebinding the window handle and toggling the video
+        track forces a fresh video output.
+        """
+        if not self.vlc_player or self.vlc_media is None:
+            return
+        try:
+            hwnd = int(self.video_label.winId())
+            if platform.system() == "Windows":
+                self.vlc_player.set_hwnd(hwnd)
+            elif platform.system() == "Darwin":
+                self.vlc_player.set_nsobject(hwnd)
+            else:
+                self.vlc_player.set_xwindow(hwnd)
+
+            track = self.vlc_player.video_get_track()
+            if track is None or track < 0:
+                # No video track selected (audio-only file, or not started)
+                return
+            self.vlc_player.video_set_track(-1)
+            self.vlc_player.video_set_track(track)
+            self._seek_on_resume = True
+            self.logger.info(f'Rebuilt video output (track {track})')
+        except Exception as e:
+            self.logger.warning(f'Could not rebuild video output: {e}')
 
     def hideEvent(self, event):
         """No need to update the slider while the window is hidden"""
