@@ -183,7 +183,8 @@ class ConfigManager:
             'default_save_folder': None,
             'default_load_folder': None,
             'playlist_directory': None,
-            'default_playlists': [],  # List of default playlist paths
+            'default_playlists': [],  # Playlists added to this profile from outside playlist_directory
+            'hidden_playlists': [],   # Playlists in playlist_directory removed from this profile
 
             # Window positions
             'window_positions': {
@@ -303,7 +304,7 @@ class ConfigManager:
         fields_to_keep = [
             'current_file', 'current_folder', 'current_playlist_path',
             'default_save_folder', 'default_load_folder', 'playlist_directory',
-            'default_playlists', 'recent_files', 'recent_folders', 'recent_playlists'
+            'default_playlists', 'hidden_playlists', 'recent_files', 'recent_folders', 'recent_playlists'
         ]
         saved_values = {field: self.config.get(field) for field in fields_to_keep}
 
@@ -412,6 +413,10 @@ class ConfigManager:
         """Get list of default playlists"""
         return self.config.get('default_playlists', [])
 
+    def get_hidden_playlists(self) -> List[str]:
+        """Get playlists in the playlist directory hidden from this profile"""
+        return self.config.get('hidden_playlists', [])
+
     def get_autoplay_on_launch(self):
         """Get autoplay on launch setting"""
         return self.config.get('autoplay_on_launch', False)
@@ -511,6 +516,12 @@ class ConfigManager:
     def set_default_playlists(self, playlists: List[str], auto_save: bool = True):
         """Set list of default playlists"""
         self.config['default_playlists'] = playlists
+        if auto_save:
+            self.save()
+
+    def set_hidden_playlists(self, playlists: List[str], auto_save: bool = True):
+        """Set playlists in the playlist directory hidden from this profile"""
+        self.config['hidden_playlists'] = playlists
         if auto_save:
             self.save()
 

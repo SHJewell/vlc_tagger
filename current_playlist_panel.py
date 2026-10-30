@@ -69,6 +69,12 @@ def getOpenFilesAndDirs(parent=None, caption='', directory='',
     selected = dialog.selectedFiles()
     return selected[0] if selected else None
 
+
+def _hover_path(path):
+    """Hover text for a list entry: the absolute path (stream URLs as-is)"""
+    return path if '://' in path else os.path.abspath(path)
+
+
 class CurrentPlaylistPanel(QWidget):
     """Panel showing current playlist/directory being played"""
 
@@ -174,7 +180,7 @@ class CurrentPlaylistPanel(QWidget):
                         self.playlist_files.append(full_path)
                         self.file_list.addItem(file)
                         # Set tooltip to show full path
-                        self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(full_path))
+                        self.file_list.item(self.file_list.count() - 1).setToolTip(_hover_path(full_path))
 
                 self.playlist_name_label.setText(f"Folder: {os.path.basename(path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from folder')
@@ -220,7 +226,7 @@ class CurrentPlaylistPanel(QWidget):
                     self.playlist_files.append(file_url)
                     self.file_list.addItem(display_name)
                     # Set tooltip to show full path/URL
-                    self.file_list.item(self.file_list.count() - 1).setToolTip(os.path.basename(file_url))
+                    self.file_list.item(self.file_list.count() - 1).setToolTip(_hover_path(file_url))
 
                 self.playlist_name_label.setText(f"Playlist: {os.path.basename(path)}")
                 self.logger.info(f'Loaded {len(self.playlist_files)} files from M3U')

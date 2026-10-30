@@ -15,6 +15,11 @@ import theme
 from config_manager import sanitize_filename
 from m3u_file import M3UFile, track_key
 
+
+def _same_path(path):
+    """Comparable form of a playlist path (Windows paths ignore case)"""
+    return os.path.normcase(os.path.abspath(path))
+
 class PlaylistManagerPanel(QWidget):
     """Panel for managing multiple M3U playlists"""
 
@@ -64,15 +69,16 @@ class PlaylistManagerPanel(QWidget):
             self.playlist_dir = saved_dir
             self.dir_label.setText(f"Directory: {os.path.basename(saved_dir)}")
             self.dir_label.setToolTip(f"<b>{saved_dir}</b>")
-            self._load_playlists()
         else:
-            # No (valid) directory in this profile — reset the panel so a
-            # profile switch doesn't leave the previous profile's playlists
+            # No (valid) directory in this profile — reset so a profile
+            # switch doesn't leave the previous profile's directory
             self.playlist_dir = None
-            self.playlists.clear()
-            self.playlist_list.clear()
             self.dir_label.setText("No directory selected")
             self.dir_label.setToolTip("")
+
+        # Always reload: the profile may have added playlists even without
+        # a directory, and a switch must clear the previous profile's list
+        self._load_playlists()
 
     def _select_playlist_directory(self):
         """Open dialog to select directory containing playlists"""
@@ -90,29 +96,99 @@ class PlaylistManagerPanel(QWidget):
             self._load_playlists()
 
     def _load_playlists(self):
-        """Load all M3U/M3U8 playlists from the selected directory"""
-        if not self.playlist_dir:
-            return
-
+        """List this profile's playlists: those in the playlist directory
+        (minus any removed from the profile) plus any added from elsewhere"""
         self.playlists.clear()
         self.playlist_list.clear()
 
-        try:
-            for filename in os.listdir(self.playlist_dir):
-                if filename.lower().endswith(('.m3u', '.m3u8')):
-                    playlist_path = os.path.join(self.playlist_dir, filename)
-                    files = self._parse_m3u_file(playlist_path)
-                    self.playlists[playlist_path] = files
+        paths = []
+        if self.playlist_dir:
+            hidden = {_same_path(p) for p in self._hidden_playlists()}
+            try:
+                for filename in sorted(os.listdir(self.playlist_dir), key=str.lower):
+                    if filename.lower().endswith(('.m3u', '.m3u8')):
+                        path = os.path.join(self.playlist_dir, filename)
+                        if _same_path(path) not in hidden:
+                            paths.append(path)
+            except Exception as e:
+                self.logger.error(f'Error loading playlists: {e}')
 
-                    item = QListWidgetItem(os.path.splitext(filename)[0])
-                    item.setData(Qt.UserRole, playlist_path)
-                    self.playlist_list.addItem(item)
+        seen = {_same_path(p) for p in paths}
+        for path in self._added_playlists():
+            if _same_path(path) in seen:
+                continue
+            if not os.path.isfile(path):
+                self.logger.warning(f'Profile playlist not found, skipping: {path}')
+                continue
+            seen.add(_same_path(path))
+            paths.append(path)
 
-            if self.current_track:
-                self._update_highlighting()
+        for path in paths:
+            self._add_list_item(path)
+            self.playlists[path] = self._parse_m3u_file(path)
 
-        except Exception as e:
-            self.logger.error(f'Error loading playlists: {e}')
+        if self.current_track:
+            self._update_highlighting()
+
+    def _add_list_item(self, playlist_path):
+        item = QListWidgetItem(os.path.splitext(os.path.basename(playlist_path))[0])
+        item.setData(Qt.UserRole, playlist_path)
+        item.setToolTip(os.path.abspath(playlist_path))
+        self.playlist_list.addItem(item)
+
+    def _added_playlists(self):
+        return list(self.config_manager.get_default_playlists()) if self.config_manager else []
+
+    def _hidden_playlists(self):
+        return list(self.config_manager.get_hidden_playlists()) if self.config_manager else []
+
+    def _in_playlist_dir(self, path):
+        return bool(self.playlist_dir) and \
+            _same_path(os.path.dirname(path)) == _same_path(self.playlist_dir)
+
+    def _add_playlists_to_profile(self):
+        """Pick playlist files (from anywhere) to show in this profile"""
+        if not self.config_manager:
+            return
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add Playlists to Profile", self.playlist_dir or "",
+            "M3U Playlists (*.m3u *.m3u8)")
+        if not paths:
+            return
+        self._add_paths_to_profile(paths)
+
+    def _add_paths_to_profile(self, paths):
+        added, hidden = self._added_playlists(), self._hidden_playlists()
+        for path in paths:
+            path = os.path.abspath(path)
+            key = _same_path(path)
+            # Un-hide it if it was removed earlier
+            hidden = [p for p in hidden if _same_path(p) != key]
+            # Directory playlists show anyway; only track ones from elsewhere
+            if not self._in_playlist_dir(path) and \
+                    key not in {_same_path(p) for p in added}:
+                added.append(path)
+
+        self.config_manager.set_default_playlists(added, auto_save=False)
+        self.config_manager.set_hidden_playlists(hidden, auto_save=True)
+        self._load_playlists()
+
+    def _remove_playlist_from_profile(self, item):
+        """Stop showing a playlist in this profile. The file is not deleted."""
+        if not self.config_manager:
+            return
+        path = item.data(Qt.UserRole)
+        key = _same_path(path)
+
+        added = [p for p in self._added_playlists() if _same_path(p) != key]
+        hidden = self._hidden_playlists()
+        if self._in_playlist_dir(path) and key not in {_same_path(p) for p in hidden}:
+            hidden.append(os.path.abspath(path))
+
+        self.config_manager.set_default_playlists(added, auto_save=False)
+        self.config_manager.set_hidden_playlists(hidden, auto_save=True)
+        self.logger.info(f'Removed {path} from profile (file kept)')
+        self._load_playlists()
 
     def _parse_m3u_file(self, file_path):
         """Parse M3U file and return its track keys (for highlighting)"""
@@ -127,10 +203,7 @@ class PlaylistManagerPanel(QWidget):
         item = self.playlist_list.itemAt(position)
 
         menu = QMenu(self)
-        load_action = None
-        if item:
-            load_action = menu.addAction("Load Playlist")
-            menu.addSeparator()
+        load_action = remove_action = None
 
         menu.addAction("Select Playlist Directory...",
                        self._select_playlist_directory)
@@ -138,10 +211,25 @@ class PlaylistManagerPanel(QWidget):
                                     self._create_new_playlist)
         new_action.setEnabled(bool(self.playlist_dir))
 
+        menu.addSeparator()
+
+        if item:
+            load_action = menu.addAction("Load As Current Playlist")
+            menu.addSeparator()
+            remove_action = menu.addAction("Remove from Profile")
+            remove_action.setEnabled(self.config_manager is not None)
+
+        add_action = menu.addAction("Add Playlists to Profile...",
+                                    self._add_playlists_to_profile)
+        add_action.setEnabled(self.config_manager is not None)
+
+
         action = menu.exec_(self.playlist_list.mapToGlobal(position))
 
         if item and action == load_action:
             self._load_playlist_as_current(item)
+        elif item and action == remove_action:
+            self._remove_playlist_from_profile(item)
 
     def _load_playlist_as_current(self, item):
         """Load the selected playlist into the main player"""
@@ -217,8 +305,14 @@ class PlaylistManagerPanel(QWidget):
         playlist_path = os.path.join(self.playlist_dir, filename)
 
         if os.path.exists(playlist_path):
-            QMessageBox.warning(self, "Playlist Exists",
-                               f"A playlist named '{name}' already exists.")
+            if _same_path(playlist_path) in {_same_path(p) for p in self._hidden_playlists()}:
+                QMessageBox.warning(self, "Playlist Exists",
+                                    f"A playlist named '{name}' already exists but was "
+                                    "removed from this profile. Use 'Add Playlists to "
+                                    "Profile...' to bring it back.")
+            else:
+                QMessageBox.warning(self, "Playlist Exists",
+                                    f"A playlist named '{name}' already exists.")
             return
 
         try:
@@ -229,10 +323,7 @@ class PlaylistManagerPanel(QWidget):
                                 f"Couldn't create {filename}:\n{e}")
             return
         self.playlists[playlist_path] = []
-
-        item = QListWidgetItem(name)
-        item.setData(Qt.UserRole, playlist_path)
-        self.playlist_list.addItem(item)
+        self._add_list_item(playlist_path)
 
     def set_current_track(self, file_path):
         """Update the current track and highlight playlists containing it"""

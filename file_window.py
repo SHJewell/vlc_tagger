@@ -108,6 +108,12 @@ class FileWindow(QMainWindow):
             self.playlist_manager_panel._create_new_playlist
         )
         playlist_menu.addAction(self.new_playlist_action)
+
+        add_to_profile_action = QAction('Add Playlists to Profile...', self)
+        add_to_profile_action.triggered.connect(
+            self.playlist_manager_panel._add_playlists_to_profile
+        )
+        playlist_menu.addAction(add_to_profile_action)
         # Creating a playlist needs a playlist directory to put it in
         playlist_menu.aboutToShow.connect(
             lambda: self.new_playlist_action.setEnabled(
