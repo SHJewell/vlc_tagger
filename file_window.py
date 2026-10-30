@@ -148,6 +148,9 @@ class FileWindow(QMainWindow):
         self.dark_mode_action.triggered.connect(self._toggle_dark_mode)
         view_menu.addAction(self.dark_mode_action)
 
+        columns_menu = view_menu.addMenu('Playlist Columns')
+        self.current_playlist_panel.add_view_actions(columns_menu)
+
     def _toggle_dark_mode(self, enabled):
         app = app_registry.get('app')
         if app:

@@ -52,6 +52,42 @@ def setup_logging():
     for noisy_logger in ('numba', 'PIL'):
         logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
+    setup_crash_logging()
+
+
+_crash_file = None   # kept open for the life of the process, for faulthandler
+
+
+def setup_crash_logging():
+    """Make crashes leave evidence.
+
+    - Python errors inside Qt slots normally make PyQt5 abort the whole app
+      with no trace; with an excepthook set they are logged and the app keeps
+      running.
+    - Hard crashes in native code (VLC, Qt) dump every thread's Python stack
+      to vlc_tagger[_N]_crash.log next to the normal log.
+    """
+    global _crash_file
+    import faulthandler
+
+    def log_uncaught(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        logging.getLogger('crash').critical('Uncaught exception',
+                                            exc_info=(exc_type, exc, tb))
+
+    sys.excepthook = log_uncaught
+
+    crash_log = os.path.splitext(instance.log_filename())[0] + '_crash.log'
+    try:
+        _crash_file = open(crash_log, 'a', encoding='utf-8')
+        _crash_file.write(f'\n--- started pid {os.getpid()} ---\n')
+        _crash_file.flush()
+        faulthandler.enable(file=_crash_file, all_threads=True)
+    except OSError as e:
+        logging.getLogger(__name__).warning(f'Crash log unavailable: {e}')
+
 
 class VLCTaggerApp:
     """Main application class"""
@@ -161,6 +197,9 @@ class VLCTaggerApp:
 
             # Playlist manager (playlist directory)
             self.file_window.playlist_manager_panel._load_from_config()
+
+            # Current playlist's columns and sort
+            self.file_window.current_playlist_panel.apply_view_settings()
 
             # Window geometry, then playlist/current file (may start playback
             # depending on the profile's autoplay setting)

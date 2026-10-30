@@ -185,6 +185,8 @@ class ConfigManager:
             'playlist_directory': None,
             'default_playlists': [],  # Playlists added to this profile from outside playlist_directory
             'hidden_playlists': [],   # Playlists in playlist_directory removed from this profile
+            'playlist_columns': [],   # Extra current-playlist columns shown: artist, album, length
+            'playlist_sort': None,    # {'column': key, 'descending': bool}; None = playlist order
 
             # Window positions
             'window_positions': {
