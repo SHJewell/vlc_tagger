@@ -1,9 +1,10 @@
 """
 Current Playlist Panel - Shows the current playlist or directory being played
 """
-from PyQt5.QtWidgets import (QWidget, QDialog, QStackedWidget, QListView, QLineEdit, QPushButton, QListWidget,
-                             QLabel, QFileDialog, QVBoxLayout)
+from PyQt5.QtWidgets import (QWidget, QDialog, QStackedWidget, QListView, QLineEdit, QListWidget,
+                             QLabel, QFileDialog, QVBoxLayout, QMenu, QAbstractItemView)
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import os
 import logging
@@ -98,15 +99,6 @@ class CurrentPlaylistPanel(QWidget):
         title_label.setFont(title_font)
         layout.addWidget(title_label)
 
-        # Load buttons
-        button_layout = QVBoxLayout()
-
-        self.load_folder_button = QPushButton("📁 Load Playlist/Folder")
-        self.load_folder_button.clicked.connect(self._load_current_playlist)
-        button_layout.addWidget(self.load_folder_button)
-
-        layout.addLayout(button_layout)
-
         # Playlist name
         self.playlist_name_label = QLabel("No playlist loaded")
         self.playlist_name_label.setWordWrap(True)
@@ -118,7 +110,30 @@ class CurrentPlaylistPanel(QWidget):
         self.file_list.itemDoubleClicked.connect(self._on_file_double_clicked)
         # Enable tooltips on hover
         self.file_list.setMouseTracking(True)
+        self.file_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.file_list)
+
+    def _show_context_menu(self, position):
+        """Right-click menu for the current playlist"""
+        menu = QMenu(self)
+        go_action = menu.addAction("Go to Current File", self.scroll_to_current)
+        go_action.setEnabled(0 <= self.current_index < len(self.playlist_files))
+        menu.addSeparator()
+        menu.addAction("Load Playlist/Folder...", self._load_current_playlist)
+        menu.exec_(self.file_list.mapToGlobal(position))
+
+    def scroll_to_current(self):
+        """Select the playing file and scroll it into the middle of the list"""
+        if not 0 <= self.current_index < len(self.playlist_files):
+            return
+        item = self.file_list.item(self.current_index)
+        # Drop whatever the user clicked since, then re-highlight the playing file
+        self.file_list.clearSelection()
+        self.file_list.setCurrentItem(item)
+        item.setSelected(True)
+        self.file_list.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+        self.file_list.setFocus()
 
     def _load_current_playlist(self):
         """Load either a folder or M3U playlist"""

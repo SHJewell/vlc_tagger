@@ -1,7 +1,7 @@
 """
 Playlist Manager Panel - Shows available playlists and allows adding/removing current track
 """
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QListWidget, QMenu,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QMenu,
                              QLabel, QFileDialog, QListWidgetItem, QMessageBox, QInputDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QBrush
@@ -43,10 +43,6 @@ class PlaylistManagerPanel(QWidget):
         title_label.setFont(title_font)
         layout.addWidget(title_label)
 
-        self.select_dir_button = QPushButton("📁 Select Playlist Directory")
-        self.select_dir_button.clicked.connect(self._select_playlist_directory)
-        layout.addWidget(self.select_dir_button)
-
         self.dir_label = QLabel("No directory selected")
         self.dir_label.setWordWrap(True)
         self.dir_label.setStyleSheet("color: gray; font-size: 9pt;")
@@ -58,11 +54,6 @@ class PlaylistManagerPanel(QWidget):
         self.playlist_list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.playlist_list)
 
-        self.new_playlist_button = QPushButton("➕ Create New Playlist")
-        self.new_playlist_button.clicked.connect(self._create_new_playlist)
-        self.new_playlist_button.setEnabled(False)
-        layout.addWidget(self.new_playlist_button)
-
     def _load_from_config(self):
         """Load playlist directory from config if available"""
         if not self.config_manager:
@@ -73,7 +64,6 @@ class PlaylistManagerPanel(QWidget):
             self.playlist_dir = saved_dir
             self.dir_label.setText(f"Directory: {os.path.basename(saved_dir)}")
             self.dir_label.setToolTip(f"<b>{saved_dir}</b>")
-            self.new_playlist_button.setEnabled(True)
             self._load_playlists()
         else:
             # No (valid) directory in this profile — reset the panel so a
@@ -83,7 +73,6 @@ class PlaylistManagerPanel(QWidget):
             self.playlist_list.clear()
             self.dir_label.setText("No directory selected")
             self.dir_label.setToolTip("")
-            self.new_playlist_button.setEnabled(False)
 
     def _select_playlist_directory(self):
         """Open dialog to select directory containing playlists"""
@@ -93,7 +82,6 @@ class PlaylistManagerPanel(QWidget):
             self.playlist_dir = dir_path
             self.dir_label.setText(f"Directory: {os.path.basename(dir_path)}")
             self.dir_label.setToolTip(f"<b>{dir_path}</b>")
-            self.new_playlist_button.setEnabled(True)
 
             # Save to config
             if self.config_manager:
@@ -138,15 +126,21 @@ class PlaylistManagerPanel(QWidget):
         """Show context menu for playlist items"""
         item = self.playlist_list.itemAt(position)
 
-        if not item:
-            return
-
         menu = QMenu(self)
-        load_action = menu.addAction("Load Playlist")
+        load_action = None
+        if item:
+            load_action = menu.addAction("Load Playlist")
+            menu.addSeparator()
+
+        menu.addAction("Select Playlist Directory...",
+                       self._select_playlist_directory)
+        new_action = menu.addAction("Create New Playlist...",
+                                    self._create_new_playlist)
+        new_action.setEnabled(bool(self.playlist_dir))
 
         action = menu.exec_(self.playlist_list.mapToGlobal(position))
 
-        if action == load_action:
+        if item and action == load_action:
             self._load_playlist_as_current(item)
 
     def _load_playlist_as_current(self, item):
