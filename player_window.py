@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 import ctypes
 import logging
+import os
 import platform
 
 import app_registry
@@ -59,6 +60,15 @@ if VLC_AVAILABLE:
 
         logging.getLogger('libvlc').log(
             {3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG), msg)
+
+
+# Files with these extensions have no picture, so the video area starts collapsed
+AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg', '.oga', '.opus', '.m4a',
+                    '.aac', '.wma', '.aiff', '.aif', '.alac', '.ape', '.mka')
+
+
+def is_audio_file(path):
+    return bool(path) and os.path.splitext(path)[1].lower() in AUDIO_EXTENSIONS
 
 
 class ClickableSlider(QSlider):
@@ -136,6 +146,8 @@ class PlayerWindow(QMainWindow):
         self._seek_on_resume = False
         # Unplayable files in a row; reset once a track actually plays
         self._consecutive_errors = 0
+        # Window height to return to when the video area is expanded again
+        self._expanded_height = None
 
         # Load saved volume from config
         if self.config_manager:
@@ -257,9 +269,13 @@ class PlayerWindow(QMainWindow):
         controls_layout.addWidget(self.next_button)
         
         # Shuffle button
-        self.shuffle_button = QPushButton("🔀 Shuffle")
+        # A checkbox glyph in the label shows the state; the checked-button
+        # shading alone is too subtle in dark mode
+        self.shuffle_button = QPushButton()
         self.shuffle_button.setCheckable(True)
+        self.shuffle_button.toggled.connect(self._update_shuffle_text)
         self.shuffle_button.setChecked(self.shuffle_mode)  # Use saved shuffle mode
+        self._update_shuffle_text(self.shuffle_mode)
         self.shuffle_button.clicked.connect(self._toggle_shuffle)
         controls_layout.addWidget(self.shuffle_button)
         
@@ -282,8 +298,18 @@ class PlayerWindow(QMainWindow):
         self.mute_button = QPushButton("Mute")
         self.mute_button.clicked.connect(self._toggle_mute)
         controls_layout.addWidget(self.mute_button)
-        
+
+        # Collapse/expand the video area
+        self.video_toggle_button = QPushButton()
+        self.video_toggle_button.setCheckable(True)
+        self.video_toggle_button.setChecked(True)
+        self.video_toggle_button.clicked.connect(self.set_video_visible)
+        controls_layout.addWidget(self.video_toggle_button)
+        self._update_video_toggle_text()
+
         main_layout.addLayout(controls_layout)
+        # Keeps the controls packed at the top when the video is collapsed
+        main_layout.addStretch()
     
     def _create_menus(self):
         """Create menu bar"""
@@ -346,6 +372,13 @@ class PlayerWindow(QMainWindow):
             bool(self.config_manager and self.config_manager.get_dark_mode()))
         self.dark_mode_action.triggered.connect(self._toggle_dark_mode)
         view_menu.addAction(self.dark_mode_action)
+
+        self.show_video_action = QAction('Show Video', self)
+        self.show_video_action.setCheckable(True)
+        self.show_video_action.setChecked(True)
+        self.show_video_action.setShortcut('V')
+        self.show_video_action.triggered.connect(self.set_video_visible)
+        view_menu.addAction(self.show_video_action)
     
     def _open_file(self):
         """Open file dialog to select a media file"""
@@ -376,7 +409,10 @@ class PlayerWindow(QMainWindow):
         self._seek_on_resume = False  # new file gets a fresh video output
 
         self.current_file = file_path
-        
+
+        # Collapse the video area for audio, expand it for video
+        self.set_video_visible(not is_audio_file(file_path), reattach=False)
+
         # Save current file to config
         if self.config_manager:
             self.config_manager.set_current_file(file_path, auto_save=True)
@@ -600,6 +636,9 @@ class PlayerWindow(QMainWindow):
             self.file_window_callback('shuffle', self.shuffle_mode)
         self.logger.info(f'Shuffle mode: {self.shuffle_mode}')
     
+    def _update_shuffle_text(self, checked):
+        self.shuffle_button.setText(("☑" if checked else "☐") + " Shuffle")
+
     def _toggle_mute(self):
         """Toggle mute"""
         if not self.vlc_player:
@@ -614,6 +653,50 @@ class PlayerWindow(QMainWindow):
             self.vlc_player.audio_set_mute(False)
 
         self.logger.info(f'Mute: {self.is_muted}')
+
+    def set_video_visible(self, visible, reattach=True):
+        """Collapse or expand the video area, shrinking/growing the window to fit.
+
+        reattach=False skips rebuilding the video output on expand (used when
+        a new file is about to load, which gets a fresh output anyway).
+        """
+        visible = bool(visible)
+        self.show_video_action.setChecked(visible)
+        self.video_toggle_button.setChecked(visible)
+        self._update_video_toggle_text()
+        # isHidden() is the label's own state; isVisible() would also be
+        # False whenever the whole window is closed
+        if visible != self.video_label.isHidden():
+            return
+
+        if visible:
+            self.video_label.show()
+            height = max(self._expanded_height or 0, self.minimumSizeHint().height())
+            self.resize(self.width(), height)
+            if reattach and self.isVisible():
+                # The video output may have been torn down while hidden
+                QTimer.singleShot(0, self._reattach_video_after_expand)
+        else:
+            self._expanded_height = self.height()
+            self.video_label.hide()
+            # Recompute the layouts now so the size hint no longer includes
+            # the video's minimum size, then shrink to just the controls
+            self.centralWidget().layout().activate()
+            self.layout().invalidate()
+            self.layout().activate()
+            self.resize(self.width(), self.minimumSizeHint().height())
+
+    def _reattach_video_after_expand(self):
+        self._rebuild_video_output()
+        # A playing video stays blank until a seek; a paused one is handled
+        # on resume (see play_pause)
+        if self._seek_on_resume and self.is_playing and not self.is_paused:
+            self._seek_on_resume = False
+            self.vlc_player.set_time(self.vlc_player.get_time())
+
+    def _update_video_toggle_text(self):
+        shown = self.video_toggle_button.isChecked()
+        self.video_toggle_button.setText("▲ Hide Video" if shown else "▼ Show Video")
 
     def _toggle_dark_mode(self, enabled):
         app = app_registry.get('app')
@@ -756,10 +839,14 @@ class PlayerWindow(QMainWindow):
         # Save window position
         if self.config_manager:
             geometry = self.geometry()
+            # Save the full-size height even while the video is collapsed
+            height = geometry.height()
+            if self.video_label.isHidden() and self._expanded_height:
+                height = self._expanded_height
             self.config_manager.set_window_position(
                 'player',
                 geometry.x(), geometry.y(),
-                geometry.width(), geometry.height(),
+                geometry.width(), height,
                 auto_save=True
             )
 
