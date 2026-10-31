@@ -45,7 +45,24 @@ class FileWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+
+        # Transport buttons along the top; they drive the player window
+        transport_layout = QHBoxLayout()
+        self.prev_button = QPushButton("⏮ Previous")
+        self.prev_button.clicked.connect(lambda: self._player_action('previous_track'))
+        transport_layout.addWidget(self.prev_button)
+
+        self.play_pause_button = QPushButton("▶ Play")
+        self.play_pause_button.clicked.connect(lambda: self._player_action('play_pause'))
+        transport_layout.addWidget(self.play_pause_button)
+
+        self.next_button = QPushButton("Next ⏭")
+        self.next_button.clicked.connect(lambda: self._player_action('next_track'))
+        transport_layout.addWidget(self.next_button)
+
+        transport_layout.addStretch()
+        main_layout.addLayout(transport_layout)
 
         # Splitter for two columns
         splitter = QSplitter(Qt.Horizontal)
@@ -150,6 +167,14 @@ class FileWindow(QMainWindow):
 
         columns_menu = view_menu.addMenu('Playlist Columns')
         self.current_playlist_panel.add_view_actions(columns_menu)
+
+    def _player_action(self, method_name):
+        if self.player_window:
+            getattr(self.player_window, method_name)()
+
+    def set_play_state(self, playing):
+        """Mirror the player's Play/Pause button (see play_state_changed)"""
+        self.play_pause_button.setText("⏸ Pause" if playing else "▶ Play")
 
     def _toggle_dark_mode(self, enabled):
         app = app_registry.get('app')

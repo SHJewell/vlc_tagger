@@ -98,11 +98,18 @@ class PlayerWindow(QMainWindow):
     media_ended = pyqtSignal()
     media_error = pyqtSignal()
     media_playing = pyqtSignal()
+    # True while playing (button offers Pause), False when paused/stopped;
+    # lets the playlist window's Play/Pause button mirror this one
+    play_state_changed = pyqtSignal(bool)
 
     # Stop auto-advancing after this many unplayable files in a row, so a
     # playlist of broken files (esp. in shuffle, which never ends) can't
     # skip forever
     MAX_CONSECUTIVE_ERRORS = 5
+
+    # Keyboard seek (Left/Right) and volume (Up/Down) step sizes
+    SEEK_STEP_MS = 5000
+    VOLUME_STEP = 5
 
     # libVLC events attached per track in play_file, detached in _stop_playback
     _VLC_EVENT_NAMES = ('MediaPlayerEndReached', 'MediaPlayerEncounteredError',
@@ -349,14 +356,38 @@ class PlayerWindow(QMainWindow):
         playback_menu.addSeparator()
         
         prev_action = QAction('Previous', self)
-        prev_action.setShortcut('Left')
+        prev_action.setShortcut('Ctrl+Left')
         prev_action.triggered.connect(self.previous_track)
         playback_menu.addAction(prev_action)
-        
+
         next_action = QAction('Next', self)
-        next_action.setShortcut('Right')
+        next_action.setShortcut('Ctrl+Right')
         next_action.triggered.connect(self.next_track)
         playback_menu.addAction(next_action)
+
+        playback_menu.addSeparator()
+
+        back_action = QAction('Back 5 Seconds', self)
+        back_action.setShortcut('Left')
+        back_action.triggered.connect(lambda: self.seek_relative(-self.SEEK_STEP_MS))
+        playback_menu.addAction(back_action)
+
+        forward_action = QAction('Forward 5 Seconds', self)
+        forward_action.setShortcut('Right')
+        forward_action.triggered.connect(lambda: self.seek_relative(self.SEEK_STEP_MS))
+        playback_menu.addAction(forward_action)
+
+        volume_up_action = QAction('Volume Up', self)
+        volume_up_action.setShortcut('Up')
+        volume_up_action.triggered.connect(lambda: self.change_volume(self.VOLUME_STEP))
+        playback_menu.addAction(volume_up_action)
+
+        volume_down_action = QAction('Volume Down', self)
+        volume_down_action.setShortcut('Down')
+        volume_down_action.triggered.connect(lambda: self.change_volume(-self.VOLUME_STEP))
+        playback_menu.addAction(volume_down_action)
+
+        playback_menu.addSeparator()
 
         self.autoplay_action = QAction('Autoplay on Launch', self)
         self.autoplay_action.setCheckable(True)
@@ -455,12 +486,12 @@ class PlayerWindow(QMainWindow):
                 self.logger.debug('transition: vlc_player.play() returned')
                 self.is_playing = True
                 self.is_paused = False
-                self.play_pause_button.setText("⏸ Pause")
+                self._set_play_button(True)
             else:
                 # Load but don't play
                 self.is_playing = False
                 self.is_paused = False
-                self.play_pause_button.setText("▶ Play")
+                self._set_play_button(False)
 
             # Notify file window
             if self.file_window_callback:
@@ -518,7 +549,7 @@ class PlayerWindow(QMainWindow):
                 'stopping auto-advance')
             self._end_handled = True
             self._stop_playback()
-            self.play_pause_button.setText("▶ Play")
+            self._set_play_button(False)
             return
 
         # Same path as a normal end of track: stop, then Next after 100ms
@@ -531,7 +562,7 @@ class PlayerWindow(QMainWindow):
         self._end_handled = True
 
         self.is_playing = False
-        self.play_pause_button.setText("▶ Play")
+        self._set_play_button(False)
 
         # Stop current playback resources (detaches events)
         self.logger.debug('media-end: calling _stop_playback()')
@@ -580,7 +611,7 @@ class PlayerWindow(QMainWindow):
             # Pause
             self.vlc_player.pause()
             self.is_paused = True
-            self.play_pause_button.setText("▶ Play")
+            self._set_play_button(False)
             self.logger.info('Paused')
         elif self._needs_reload:
             # Stopped or ended: reload so events and the end guard are re-armed
@@ -599,16 +630,21 @@ class PlayerWindow(QMainWindow):
                 self.vlc_player.play()
             self.is_paused = False
             self.is_playing = True
-            self.play_pause_button.setText("⏸ Pause")
+            self._set_play_button(True)
             self.logger.info('Playing')
     
+    def _set_play_button(self, playing):
+        """Show Pause while playing, Play otherwise, and tell other windows"""
+        self.play_pause_button.setText("⏸ Pause" if playing else "▶ Play")
+        self.play_state_changed.emit(playing)
+
     def stop(self):
         """Stop playback"""
         self._stop_playback()
 
         self.video_label.clear()
         self.video_label.setStyleSheet("background-color: black;")
-        self.play_pause_button.setText("▶ Play")
+        self._set_play_button(False)
         self.time_slider.setValue(0)
         self.current_time_label.setText("00:00")
         self.total_time_label.setText("00:00")
@@ -729,6 +765,30 @@ class PlayerWindow(QMainWindow):
             self.config_manager.set_volume(self.volume, auto_save=False)
 
         self.logger.debug(f'Volume set to: {self.volume}')
+
+    def seek_relative(self, delta_ms):
+        """Jump forward/back within the current track (works while paused)"""
+        if not self.vlc_player or self.current_file is None or self._needs_reload:
+            return
+        current = self.vlc_player.get_time()
+        if current < 0:
+            return
+        target = max(0, current + delta_ms)
+        length = self.vlc_player.get_length()
+        if length > 0:
+            target = min(target, length)
+        self.vlc_player.set_time(int(target))
+
+    def change_volume(self, delta):
+        """Step the volume; the slider applies it, the save is debounced"""
+        self.volume_slider.setValue(max(0, min(100, self.volume + delta)))
+        if self.config_manager:
+            # Holding the key repeats; write to disk once it settles
+            if not hasattr(self, '_volume_save_timer'):
+                self._volume_save_timer = QTimer(self)
+                self._volume_save_timer.setSingleShot(True)
+                self._volume_save_timer.timeout.connect(self._save_volume)
+            self._volume_save_timer.start(500)
 
     def _save_volume(self):
         """Write the volume to disk once the slider is released"""

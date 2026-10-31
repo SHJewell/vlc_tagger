@@ -120,6 +120,7 @@ class VLCTaggerApp:
 
         # Link windows together
         self.file_window.player_window = self.player_window
+        self.player_window.play_state_changed.connect(self.file_window.set_play_state)
 
         # Closing the player window only pauses; stop and release VLC when
         # the app actually quits
