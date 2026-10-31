@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QWidget, QDialog, QStackedWidget, QListView, QLineE
                              QLabel, QFileDialog, QVBoxLayout, QMenu, QAbstractItemView,
                              QTreeWidget, QTreeWidgetItem, QHeaderView, QAction)
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QFont, QCursor
 import os
 import re
@@ -31,6 +31,8 @@ COLUMNS = [(COL_NAME, 'name', 'File Name'),
            (COL_LENGTH, 'length', 'Length')]
 OPTIONAL_COLUMNS = (COL_ARTIST, COL_ALBUM, COL_LENGTH)   # File Name is always shown
 COLUMN_KEYS = {col: key for col, key, _ in COLUMNS}
+DEFAULT_WIDTHS = {COL_ARTIST: 140, COL_ALBUM: 140, COL_LENGTH: 60}
+MIN_NAME_WIDTH = 100
 
 # Data stored on each row (in the File Name column)
 PATH_ROLE = Qt.UserRole              # the file's path, as played
@@ -160,12 +162,15 @@ class CurrentPlaylistPanel(QWidget):
         layout.addWidget(self.file_list)
 
         # Header: click to sort, right-click to choose columns
+        # Every column can be dragged. The last visible one fills the leftover
+        # space; window resizes go to File Name instead (see eventFilter).
+        # (A Stretch-mode File Name would fill too, but Qt locks its width.)
         header = self.file_list.header()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
-        for col, width in ((COL_ARTIST, 140), (COL_ALBUM, 140), (COL_LENGTH, 60)):
-            header.setSectionResizeMode(col, QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        for col, width in DEFAULT_WIDTHS.items():
             header.resizeSection(col, width)
+        self.file_list.viewport().installEventFilter(self)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(False)
         header.sectionClicked.connect(self._on_header_clicked)
@@ -191,6 +196,37 @@ class CurrentPlaylistPanel(QWidget):
         self.playlist_order_action.setEnabled(False)
 
     # ---- Columns and sorting ----
+
+    def eventFilter(self, obj, event):
+        if obj is self.file_list.viewport() and event.type() == QEvent.Resize:
+            if event.oldSize().width() < 0:
+                self._fit_name_column()
+            else:
+                # Give the width change to File Name so the last column keeps its size
+                delta = event.size().width() - event.oldSize().width()
+                if delta and self._last_visible_column() != COL_NAME:
+                    header = self.file_list.header()
+                    header.resizeSection(
+                        COL_NAME, max(MIN_NAME_WIDTH, header.sectionSize(COL_NAME) + delta))
+        return super().eventFilter(obj, event)
+
+    def _last_visible_column(self):
+        visible = [col for col, _, _ in COLUMNS if not self.file_list.isColumnHidden(col)]
+        return visible[-1]
+
+    def _fit_name_column(self):
+        """Size File Name so the other visible columns get their default widths"""
+        last = self._last_visible_column()
+        if last == COL_NAME:
+            return   # it's the stretched column already
+        header = self.file_list.header()
+        others = sum(DEFAULT_WIDTHS[col] for col in OPTIONAL_COLUMNS
+                     if not self.file_list.isColumnHidden(col))
+        width = self.file_list.viewport().width() - others
+        header.resizeSection(COL_NAME, max(MIN_NAME_WIDTH, width))
+        for col in OPTIONAL_COLUMNS:
+            if col != last and not self.file_list.isColumnHidden(col):
+                header.resizeSection(col, DEFAULT_WIDTHS[col])
 
     def add_view_actions(self, menu):
         """Put the column switches and sort reset into a menu"""
@@ -229,6 +265,7 @@ class CurrentPlaylistPanel(QWidget):
             for col in OPTIONAL_COLUMNS:
                 self.column_actions[col].setChecked(COLUMN_KEYS[col] in columns)
                 self.file_list.setColumnHidden(col, COLUMN_KEYS[col] not in columns)
+            self._fit_name_column()
 
             self._sort_column = None
             if isinstance(sort, dict):
@@ -258,6 +295,7 @@ class CurrentPlaylistPanel(QWidget):
     def _set_column_visible(self, col, visible):
         self.logger.debug(f'Column {COLUMN_KEYS[col]} -> {"shown" if visible else "hidden"}')
         self.file_list.setColumnHidden(col, not visible)
+        self._fit_name_column()
         if visible:
             self._request_info()
         elif col == self._sort_column:
